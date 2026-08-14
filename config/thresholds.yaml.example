@@ -1,0 +1,64 @@
+# Alert Thresholds Configuration
+# Copy to thresholds.yaml and customize
+# All values are metric-specific; supports wildcards for disk mounts
+
+thresholds:
+  # CPU thresholds (percentage)
+  cpu.user_pct:
+    warning: 80
+    critical: 95
+  cpu.system_pct:
+    warning: 60
+    critical: 85
+  cpu.iowait_pct:
+    warning: 30
+    critical: 50
+  cpu.load_avg_1m:
+    warning: 2.0      # Per-core; adjust for core count
+    critical: 4.0
+
+  # Memory thresholds (percentage)
+  mem.used_pct:
+    warning: 85
+    critical: 95
+  mem.swap_used_pct:
+    warning: 50
+    critical: 80
+
+  # Disk thresholds (percentage) - wildcard matches all mounts
+  disk.*.used_pct:
+    warning: 85
+    critical: 95
+  disk.*.inodes_used_pct:
+    warning: 80
+    critical: 90
+
+  # Network thresholds (bytes/sec) - adjust for interface speed
+  net.*.rx_bytes_per_sec:
+    warning: 100000000   # ~100 MB/s
+    critical: 1000000000 # ~1 GB/s
+  net.*.tx_bytes_per_sec:
+    warning: 100000000
+    critical: 1000000000
+  net.*.errors_per_sec:
+    warning: 10
+    critical: 100
+
+  # Uptime / availability
+  uptime.seconds:
+    warning: 300      # Alert if uptime < 5 min (recent reboot)
+    critical: 60      # Alert if uptime < 1 min
+
+# Collection failure threshold (consecutive failed polls before host DOWN)
+collection:
+  failure_threshold: 3
+
+# Notification webhooks (optional)
+# notifications:
+#   slack:
+#     webhook_url: "https://hooks.slack.com/services/XXX/YYY/ZZZ"
+#     channel: "#alerts"
+#   discord:
+#     webhook_url: "https://discord.com/api/webhooks/XXX/YYY"
+#   pagerduty:
+#     integration_key: "XXXXXXXXXXXX"
