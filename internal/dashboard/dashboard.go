@@ -9,7 +9,6 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -53,7 +52,6 @@ func (s *Server) Run(ctx context.Context) {
 	mux.HandleFunc("/alerts", s.authMiddleware(s.handleAlerts))
 	mux.HandleFunc("/monitor", s.authMiddleware(s.handleMonitor))
 	mux.HandleFunc("/api/", s.authMiddleware(s.handleAPI))
-	mux.HandleFunc("/metrics", s.handleMetrics)
 	mux.HandleFunc("/api/hosts", s.authMiddleware(s.handleAPIHosts))
 	mux.HandleFunc("/api/host/", s.authMiddleware(s.handleAPIHost))
 	mux.HandleFunc("/api/compare", s.authMiddleware(s.handleAPICompare))
@@ -258,39 +256,6 @@ func (s *Server) handleAPIProjects(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(projects)
-}
-
-func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
-
-	statuses := s.sched.GetAllHostStatuses()
-	hosts, _ := s.db.GetHosts()
-
-	for _, h := range hosts {
-		st := statuses[h.ID]
-		collector := "unknown"
-		lastSuccess := int64(0)
-		fails := 0
-		if st != nil {
-			collector = st.LastCollector
-			if !st.LastSuccess.IsZero() {
-				lastSuccess = st.LastSuccess.Unix()
-			}
-			fails = st.ConsecutiveFails
-		}
-
-		w.Write([]byte(fmt.Sprintf("poll_total{host=\"%s\",collector=\"%s\",result=\"success\"} 1\npoll_latency_seconds{host=\"%s\",collector=\"%s\"} 0\ncollector_last_success{host=\"%s\"} %d\nhost_status{host=\"%s\"} %d\n", h.Name, collector, h.Name, collector, h.Name, lastSuccess, h.Name, fails)))
-	}
-
-	dbSize := int64(0)
-	dbPath := os.Getenv("DB_PATH")
-	if dbPath == "" {
-		dbPath = "/data/monitor.db"
-	}
-	if fi, err := os.Stat(dbPath); err == nil {
-		dbSize = fi.Size()
-	}
-	w.Write([]byte(fmt.Sprintf("db_size_bytes %d\n", dbSize)))
 }
 
 func (s *Server) handleAPIHosts(w http.ResponseWriter, r *http.Request) {

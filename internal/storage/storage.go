@@ -409,11 +409,11 @@ func (db *DB) GetAlerts(ctx context.Context, hostID int64) ([]Alert, error) {
 }
 
 type Project struct {
-	ID        int64
-	Name      string
-	Type      string // "tag_query" or "explicit"
-	TagQuery  string
-	HostIDs   []int64
+	ID       int64
+	Name     string
+	Type     string // "tag_query" or "explicit"
+	TagQuery string
+	HostIDs  []int64
 }
 
 func (db *DB) GetProjects(ctx context.Context) ([]Project, error) {

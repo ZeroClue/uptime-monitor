@@ -71,6 +71,7 @@ func main() {
 	collectorChain := collector.NewChain(
 		collector.NewPsutilCollector(),
 		collector.NewProcfsCollector(),
+		collector.NewTailscaleCollector(),
 	)
 
 	sched := scheduler.New(cfg.PollInterval, db, collectorChain, logger)

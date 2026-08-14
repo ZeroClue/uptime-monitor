@@ -18,9 +18,9 @@ import (
 )
 
 type Engine struct {
-	db        *storage.DB
-	sched     *scheduler.Scheduler
-	logger    *slog.Logger
+	db         *storage.DB
+	sched      *scheduler.Scheduler
+	logger     *slog.Logger
 	thresholds map[string]ThresholdConfig
 	webhooks   []WebhookConfig
 	stopCh     chan struct{}
@@ -41,12 +41,12 @@ type WebhookConfig struct {
 
 func NewEngine(db *storage.DB, sched *scheduler.Scheduler, logger *slog.Logger) *Engine {
 	return &Engine{
-		db:        db,
-		sched:     sched,
-		logger:    logger,
+		db:         db,
+		sched:      sched,
+		logger:     logger,
 		thresholds: make(map[string]ThresholdConfig),
-		webhooks:  []WebhookConfig{},
-		stopCh:    make(chan struct{}),
+		webhooks:   []WebhookConfig{},
+		stopCh:     make(chan struct{}),
 	}
 }
 
@@ -107,11 +107,11 @@ func (e *Engine) evaluateAlerts(ctx context.Context) {
 		// Collection failure alert (3 consecutive fails = down)
 		if status.ConsecutiveFails >= 3 {
 			e.fireAlert(ctx, storage.Alert{
-				HostID:    h.ID,
-				Type:      "collection_failure",
-				Severity:  "critical",
-				Message:   fmt.Sprintf("Host %s is down (%d consecutive failed polls)", h.Name, status.ConsecutiveFails),
-				FiredAt:   time.Now(),
+				HostID:   h.ID,
+				Type:     "collection_failure",
+				Severity: "critical",
+				Message:  fmt.Sprintf("Host %s is down (%d consecutive failed polls)", h.Name, status.ConsecutiveFails),
+				FiredAt:  time.Now(),
 			})
 		}
 
@@ -211,8 +211,8 @@ func (e *Engine) buildWebhookPayload(alert storage.Alert, webhookType string) []
 		return []byte(fmt.Sprintf(`{"embeds":[{"title":"%s","description":"%s","color":%d,"fields":[{"name":"Host ID","value":"%d","inline":true},{"name":"Severity","value":"%s","inline":true}]}]}`, alert.Message, alert.Message, color, alert.HostID, alert.Severity))
 	case "pagerduty":
 		payload := map[string]interface{}{
-			"routing_key":    "",
-			"event_action":   "trigger",
+			"routing_key":  "",
+			"event_action": "trigger",
 			"payload": map[string]interface{}{
 				"summary":   alert.Message,
 				"severity":  alert.Severity,
