@@ -6,9 +6,6 @@ on:
   pull_request:
     branches: [main]
 
-env:
-  GOFLAGS: "-toolchain=local"
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -18,7 +15,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23.12'
+          go-version: '1.22'
           check-latest: false
           
       - name: Cache Go modules
@@ -41,13 +38,8 @@ jobs:
         run: go vet ./...
         
       - name: Run tests
-        run: go test -v -coverprofile=coverage.out ./...
+        run: go test -v ./...
         
-      - name: Upload coverage
-        uses: codecov/codecov-action@v4
-        with:
-          files: ./coverage.out
-          
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -56,13 +48,13 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23.12'
+          go-version: '1.22'
           check-latest: false
           
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
-          version: v1.62.2
+          version: v1.61.0
           
   docker:
     runs-on: ubuntu-latest
