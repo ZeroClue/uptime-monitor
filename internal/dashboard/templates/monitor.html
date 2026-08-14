@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Self-Monitoring - Uptime Monitor</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="https://cdn.jsdelivr.net/npm/htmx.org@1.9.10"></script>
+    <style>
+        body { font-family: system-ui, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+        .card { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .metric { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #eee; }
+        .metric:last-child { border-bottom: none; }
+        .metric-label { color: #666; }
+        .metric-value { font-weight: bold; }
+        .host-table { width: 100%; border-collapse: collapse; }
+        .host-table th, .host-table td { padding: 8px; text-align: left; border-bottom: 1px solid #eee; }
+        .status.ok { color: #2e7d32; }
+        .status.warning { color: #e65100; }
+        .status.critical { color: #c62828; }
+        .status.down { color: #616161; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Self-Monitoring</h1>
+        <a href="/">← Back to hosts</a>
+    </div>
+    <div class="grid">
+        <div class="card">
+            <h2>Overall</h2>
+            <div class="metric"><span class="metric-label">Database Size</span><span class="metric-value">{{.DBSize}} MB</span></div>
+            <div class="metric"><span class="metric-label">Total Hosts</span><span class="metric-value">{{len .Hosts}}</span></div>
+            <div class="metric"><span class="metric-label">Polling Interval</span><span class="metric-value">30s</span></div>
+        </div>
+        <div class="card">
+            <h2>Host Collector Status</h2>
+            <table class="host-table">
+                <thead><tr><th>Host</th><th>Last Collector</th><th>Last Success</th><th>Consecutive Fails</th><th>Last Error</th></tr></thead>
+                <tbody>
+                    {{range .Hosts}}
+                    {{with index $.Statuses .ID}}
+                    <tr>
+                        <td>{{$.Name}}</td>
+                        <td>{{.LastCollector}}</td>
+                        <td>{{if .LastSuccess.IsZero}}Never{{else}}{{.LastSuccess.Format "15:04:05"}}{{end}}</td>
+                        <td class="status {{if eq .ConsecutiveFails 0}}ok{{else if lt .ConsecutiveFails 3}}warning{{else}}down{{end}}">{{.ConsecutiveFails}}</td>
+                        <td>{{.LastError}}</td>
+                    </tr>
+                    {{else}}
+                    <tr>
+                        <td>{{$.Name}}</td>
+                        <td colspan="4" class="status down">No status data</td>
+                    </tr>
+                    {{end}}
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</body>
+</html>

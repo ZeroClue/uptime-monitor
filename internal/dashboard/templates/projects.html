@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Projects - Uptime Monitor</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="https://cdn.jsdelivr.net/npm/htmx.org@1.9.10"></script>
+    <style>
+        body { font-family: system-ui, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
+        .card { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .status { padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; }
+        .status.ok { background: #e8f5e9; color: #2e7d32; }
+        .status.warning { background: #fff3e0; color: #e65100; }
+        .status.critical { background: #fce4ec; color: #c62828; }
+        .status.down { background: #fafafa; color: #616161; }
+        .meta { font-size: 0.85em; color: #666; }
+        .host-list { margin-top: 10px; font-size: 0.85em; }
+        .host-list li { margin: 5px 0; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Projects</h1>
+        <a href="/">← Back to hosts</a>
+    </div>
+    <div class="grid">
+        <div class="card">
+            <div class="card-header">
+                <h2>Web Production</h2>
+                <span class="status ok">OK</span>
+            </div>
+            <div class="meta">Tag query: web AND prod</div>
+            <ul class="host-list">
+                <li>web-01 - OK</li>
+                <li>web-02 - OK</li>
+            </ul>
+        </div>
+        <div class="card">
+            <div class="card-header">
+                <h2>Database Cluster</h2>
+                <span class="status warning">WARNING</span>
+            </div>
+            <div class="meta">Explicit: db-01, db-02, db-03</div>
+            <ul class="host-list">
+                <li>db-01 - OK</li>
+                <li>db-02 - HIGH CPU</li>
+                <li>db-03 - OK</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>
