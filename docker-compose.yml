@@ -1,0 +1,46 @@
+services:
+  monitor:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: uptime-monitor:latest
+    container_name: uptime-monitor
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config:/config:ro
+      - ./data:/data
+    environment:
+      - DASHBOARD_PASSWORD=${DASHBOARD_PASSWORD:-changeme}
+      - POLL_INTERVAL=${POLL_INTERVAL:-30s}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    network_mode: host
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# Optional: Run with `docker-compose --profile tailscale up` for Tailscale sidecar (v2)
+# profiles:
+#   tailscale:
+#     services:
+#       tailscale:
+#         image: tailscale/tailscale:latest
+#         container_name: uptime-monitor-tailscale
+#         cap_add:
+#           - NET_ADMIN
+#         devices:
+#           - /dev/net/tun:/dev/net/tun
+#         volumes:
+#           - ./tailscale-state:/var/lib/tailscale
+#         environment:
+#           - TS_AUTHKEY=${TS_AUTHKEY}
+#           - TS_HOSTNAME=uptime-monitor

@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>{{.Name}} - Uptime Monitor</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="https://cdn.jsdelivr.net/npm/htmx.org@1.9.10"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+    <style>
+        body { font-family: system-ui, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .header h1 { margin: 0; }
+        .back { color: #666; text-decoration: none; }
+        .back:hover { color: #000; }
+        .controls { background: white; padding: 15px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .controls select, .controls button { padding: 8px 12px; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; }
+        .controls button { background: #f5f5f5; cursor: pointer; }
+        .controls button.active { background: #0066cc; color: white; border-color: #0066cc; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(500px, 1fr)); gap: 20px; }
+        .panel { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .panel h3 { margin: 0 0 15px 0; }
+        .chart-container { height: 300px; position: relative; }
+        .meta { font-size: 0.85em; color: #666; margin-bottom: 15px; }
+        .tags { margin-top: 10px; }
+        .tag { display: inline-block; background: #e3f2fd; color: #1565c0; padding: 2px 8px; border-radius: 12px; font-size: 0.75em; margin-right: 5px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>{{.Name}}</h1>
+        <a href="/" class="back">← Back to hosts</a>
+    </div>
+    <div class="meta">{{.Connection}}://{{.Endpoint}}:{{.Port}} · User: {{.User}} · Tags: {{range .Tags}}<span class="tag">{{.}}</span>{{end}}</div>
+    <div class="controls">
+        <label>Time range: </label>
+        <select id="timeRange" hx-get="/api/host/{{.ID}}/metrics" hx-target="#charts" hx-include="[name='resolution']" hx-trigger="change">
+            <option value="1h">Last hour</option>
+            <option value="6h" selected>Last 6 hours</option>
+            <option value="24h">Last 24 hours</option>
+            <option value="7d">Last 7 days</option>
+            <option value="30d">Last 30 days</option>
+        </select>
+        <label>Resolution: </label>
+        <select name="resolution" id="resolution" hx-get="/api/host/{{.ID}}/metrics" hx-target="#charts" hx-include="[name='timeRange']" hx-trigger="change">
+            <option value="raw">Raw (30s)</option>
+            <option value="1m" selected>1 minute</option>
+            <option value="1h">1 hour</option>
+        </select>
+    </div>
+    <div id="charts" class="grid">
+        <div class="panel"><h3>CPU</h3><div class="chart-container"><canvas id="cpuChart"></canvas></div></div>
+        <div class="panel"><h3>Memory</h3><div class="chart-container"><canvas id="memChart"></canvas></div></div>
+        <div class="panel"><h3>Disk</h3><div class="chart-container"><canvas id="diskChart"></canvas></div></div>
+        <div class="panel"><h3>Network</h3><div class="chart-container"><canvas id="netChart"></canvas></div></div>
+    </div>
+    <script>
+        let charts = {};
+        const colors = ['#0066cc', '#e65100', '#2e7d32', '#c62828', '#6a1b9a', '#00838f'];
+        
+        function initCharts(data) {
+            const ctxs = {
+                cpu: document.getElementById('cpuChart').getContext('2d'),
+                mem: document.getElementById('memChart').getContext('2d'),
+                disk: document.getElementById('diskChart').getContext('2d'),
+                net: document.getElementById('netChart').getContext('2d'),
+            };
+            
+            for (const [key, ctx] of Object.entries(ctxs)) {
+                if (charts[key]) charts[key].destroy();
+                charts[key] = new Chart(ctx, {
+                    type: 'line',
+                    data: { labels: [], datasets: [] },
+                    options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false } }
+                });
+            }
+            updateCharts(data);
+        }
+        
+        function updateCharts(data) {
+            if (!data) return;
+            const metrics = data.metrics || {};
+            
+            if (metrics.cpu) updateChart(charts.cpu, metrics.cpu, 'CPU %', ['user_pct', 'system_pct', 'idle_pct', 'iowait_pct']);
+            if (metrics.mem) updateChart(charts.mem, metrics.mem, 'Memory (bytes)', ['used_bytes', 'free_bytes', 'cached_bytes']);
+            if (metrics.disk) updateChart(charts.disk, metrics.disk, 'Disk (bytes)', ['used_bytes', 'free_bytes']);
+            if (metrics.net) updateChart(charts.net, metrics.net, 'Network (bytes/s)', ['rx_bytes', 'tx_bytes']);
+        }
+        
+        function updateChart(chart, data, label, keys) {
+            if (!data || !data[keys[0]]) return;
+            const timestamps = data[keys[0]].map(d => new Date(d[0]*1000).toLocaleTimeString());
+            chart.data.labels = timestamps;
+            chart.data.datasets = keys.map((k, i) => ({
+                label: k, data: data[k].map(d => d[1]), borderColor: colors[i % colors.length],
+                fill: false, tension: 0.1, pointRadius: 0
+            }));
+            chart.update('none');
+        }
+        
+        htmx.onLoad(function() {
+            htmx.ajax('GET', '/api/host/{{.ID}}/metrics?timeRange=6h&resolution=1m', {target: '#charts'})
+                .then(function(r) { initCharts(JSON.parse(r.responseText)); });
+        });
+    </script>
+</body>
+</html>

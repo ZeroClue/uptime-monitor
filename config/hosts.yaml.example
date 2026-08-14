@@ -1,0 +1,58 @@
+# Host Configuration for Uptime Monitor
+# Copy to hosts.yaml and customize
+# SSH keys referenced by key_path should be placed in /config/keys/ (mounted volume)
+
+hosts:
+  # Example: SSH host with psutil (preferred - richest metrics)
+  - name: web-01
+    connection: ssh
+    endpoint: 10.0.0.5
+    port: 22
+    user: monitor
+    key_path: /keys/web-01
+    sudo: false
+    timeout: 10s
+    proxy_jump: ""
+    tags: [web, prod]
+    # collector_preference: ""  # Optional: force "psutil" | "procfs" | "tailscale"
+
+  # Example: SSH host without Python/psutil (falls back to /proc + df)
+  - name: legacy-db
+    connection: ssh
+    endpoint: 10.0.0.10
+    port: 22
+    user: monitor
+    key_path: /keys/legacy-db
+    sudo: true          # Required for df on some systems
+    timeout: 15s
+    proxy_jump: bastion.example.com
+    tags: [db, prod]
+
+  # Example: Host reachable only via Tailscale
+  - name: remote-edge
+    connection: tailscale
+    endpoint: 100.64.1.42    # Tailscale IP (100.x.y.z)
+    port: 22
+    user: monitor
+    key_path: /keys/remote-edge
+    sudo: false
+    timeout: 20s
+    tags: [edge, iot]
+
+  # Example: Host behind SSH bastion/proxy jump
+  - name: private-api
+    connection: ssh
+    endpoint: 10.10.0.5
+    port: 22
+    user: monitor
+    key_path: /keys/private-api
+    sudo: false
+    timeout: 10s
+    proxy_jump: monitor@bastion.example.com:22
+    tags: [api, internal]
+
+# Key Management:
+# 1. Generate keys: ssh-keygen -t ed25519 -f config/keys/web-01 -C "uptime-monitor@web-01"
+# 2. Copy public key to target host: ssh-copy-id -i config/keys/web-01.pub monitor@10.0.0.5
+# 3. Ensure private key permissions: chmod 600 config/keys/web-01
+# 4. Mount config/ directory as /config in container (read-only recommended)

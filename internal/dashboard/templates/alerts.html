@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Alerts - Uptime Monitor</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="https://cdn.jsdelivr.net/npm/htmx.org@1.9.10"></script>
+    <style>
+        body { font-family: system-ui, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .alert { background: white; border-radius: 8px; padding: 15px; margin-bottom: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border-left: 4px solid; }
+        .alert.warning { border-color: #e65100; }
+        .alert.critical { border-color: #c62828; }
+        .alert.down { border-color: #616161; }
+        .alert-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .alert-title { font-weight: bold; }
+        .alert-meta { font-size: 0.85em; color: #666; }
+        .btn-ack { background: #0066cc; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.85em; }
+        .btn-ack:hover { background: #0052a3; }
+        .btn-ack.acked { background: #616161; cursor: default; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Alerts</h1>
+        <a href="/">← Back to hosts</a>
+    </div>
+    <div class="alert warning">
+        <div class="alert-header">
+            <span class="alert-title">web-01: CPU User % WARNING</span>
+            <button class="btn-ack">Acknowledge</button>
+        </div>
+        <div class="alert-meta">Value: 85% > 80% threshold · Fired: 2024-01-15 10:30:00</div>
+    </div>
+    <div class="alert critical">
+        <div class="alert-header">
+            <span class="alert-title">db-02: Disk Used % CRITICAL</span>
+            <button class="btn-ack">Acknowledge</button>
+        </div>
+        <div class="alert-meta">Value: 96% > 95% threshold · Fired: 2024-01-15 09:15:00</div>
+    </div>
+    <div class="alert down">
+        <div class="alert-header">
+            <span class="alert-title">cache-03: HOST DOWN</span>
+            <button class="btn-ack">Acknowledge</button>
+        </div>
+        <div class="alert-meta">3 consecutive failed polls · Fired: 2024-01-15 08:00:00</div>
+    </div>
+</body>
+</html>

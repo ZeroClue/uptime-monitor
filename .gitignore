@@ -1,0 +1,56 @@
+# Go
+*.exe
+*.test
+*.prof
+vendor/
+go.work
+
+# Build output
+/bin/
+/dist/
+uptime-monitor
+uptime-monitor-*
+
+# Docker
+.docker/
+docker-compose.override.yml
+*.tar
+
+# SQLite database
+/data/
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+
+# Config (secrets and local overrides)
+/config/hosts.yaml
+/config/thresholds.yaml
+/config/keys/
+!/config/*.example
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Test coverage
+coverage.out
+coverage.html
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# OS
+Thumbs.db
+ehthumbs.db
+Desktop.ini
