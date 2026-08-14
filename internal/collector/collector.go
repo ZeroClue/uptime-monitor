@@ -22,15 +22,15 @@ type Collector interface {
 var ErrCollectorFailed = errors.New("collector failed")
 
 type Host struct {
-	ID                int64
-	Name              string
-	Connection        string
-	Endpoint          string
-	Port              int
-	User              string
-	KeyPath           string
-	Sudo              bool
-	Timeout           time.Duration
-	ProxyJump         string
+	ID                  int64
+	Name                string
+	Connection          string
+	Endpoint            string
+	Port                int
+	User                string
+	KeyPath             string
+	Sudo                bool
+	Timeout             time.Duration
+	ProxyJump           string
 	CollectorPreference string
 }

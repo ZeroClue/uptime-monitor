@@ -8,8 +8,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/ZeroClue/uptime-monitor/internal/config"
 	"github.com/ZeroClue/uptime-monitor/internal/collector"
+	"github.com/ZeroClue/uptime-monitor/internal/config"
 	"github.com/ZeroClue/uptime-monitor/internal/dashboard"
 	"github.com/ZeroClue/uptime-monitor/internal/scheduler"
 	"github.com/ZeroClue/uptime-monitor/internal/storage"

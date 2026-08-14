@@ -165,10 +165,10 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	statuses := s.sched.GetAllHostStatuses()
 	data := struct {
-		Hosts   []storage.Host
+		Hosts    []storage.Host
 		Statuses map[int64]*scheduler.HostStatus
 	}{
-		Hosts:   hosts,
+		Hosts:    hosts,
 		Statuses: statuses,
 	}
 	s.render(w, "index.html", data)
@@ -219,10 +219,10 @@ func (s *Server) handleMonitor(w http.ResponseWriter, r *http.Request) {
 	statuses := s.sched.GetAllHostStatuses()
 	hosts, _ := s.db.GetHosts()
 	data := struct {
-		Hosts   []storage.Host
+		Hosts    []storage.Host
 		Statuses map[int64]*scheduler.HostStatus
 	}{
-		Hosts:   hosts,
+		Hosts:    hosts,
 		Statuses: statuses,
 	}
 	s.render(w, "monitor.html", data)
@@ -420,7 +420,7 @@ func (s *Server) handleAPICompare(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type Series struct {
-		Host string      `json:"host"`
+		Host string       `json:"host"`
 		Data [][2]float64 `json:"data"`
 	}
 

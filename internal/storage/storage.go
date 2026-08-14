@@ -182,18 +182,18 @@ func parseTags(s string) []string {
 }
 
 type Host struct {
-	ID                 int64
-	Name               string
-	Connection         string
-	Endpoint           string
-	Port               int
-	User               string
-	KeyPath            string
-	Sudo               bool
-	TimeoutRaw         int64
-	Timeout            time.Duration
-	ProxyJump          string
-	Tags               []string
+	ID                  int64
+	Name                string
+	Connection          string
+	Endpoint            string
+	Port                int
+	User                string
+	KeyPath             string
+	Sudo                bool
+	TimeoutRaw          int64
+	Timeout             time.Duration
+	ProxyJump           string
+	Tags                []string
 	CollectorPreference string
 }
 

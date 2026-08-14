@@ -44,21 +44,21 @@ func buildPsutilCommand(host Host) string {
 }
 
 type PsutilOutput struct {
-	CPU   PsutilCPU   `json:"cpu"`
-	Mem   PsutilMem   `json:"mem"`
-	Disk  PsutilDisk  `json:"disk"`
-	Net   map[string]PsutilNet `json:"net"`
-	Uptime int        `json:"uptime"`
+	CPU    PsutilCPU            `json:"cpu"`
+	Mem    PsutilMem            `json:"mem"`
+	Disk   PsutilDisk           `json:"disk"`
+	Net    map[string]PsutilNet `json:"net"`
+	Uptime int                  `json:"uptime"`
 }
 
 type PsutilCPU struct {
-	User    float64 `json:"user"`
-	System  float64 `json:"system"`
-	Idle    float64 `json:"idle"`
-	Iowait  float64 `json:"iowait"`
-	Load1   float64 `json:"load1"`
-	Load5   float64 `json:"load5"`
-	Load15  float64 `json:"load15"`
+	User   float64 `json:"user"`
+	System float64 `json:"system"`
+	Idle   float64 `json:"idle"`
+	Iowait float64 `json:"iowait"`
+	Load1  float64 `json:"load1"`
+	Load5  float64 `json:"load5"`
+	Load15 float64 `json:"load15"`
 }
 
 type PsutilMem struct {

@@ -185,7 +185,7 @@ func TestDB_Cleanup(t *testing.T) {
 func TestDB_FileCreation(t *testing.T) {
 	tmpDir := t.TempDir()
 	dbPath := filepath.Join(tmpDir, "monitor.db")
-	
+
 	db, err := New(tmpDir)
 	if err != nil {
 		t.Fatalf("failed to create DB: %v", err)

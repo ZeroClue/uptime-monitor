@@ -130,16 +130,16 @@ func (s *Scheduler) pollAll(ctx context.Context) {
 func (s *Scheduler) pollHost(ctx context.Context, host storage.Host) {
 	start := time.Now()
 	samples, err := s.collectors.Collect(ctx, collector.Host{
-		ID:                host.ID,
-		Name:              host.Name,
-		Connection:        host.Connection,
-		Endpoint:          host.Endpoint,
-		Port:              host.Port,
-		User:              host.User,
-		KeyPath:           host.KeyPath,
-		Sudo:              host.Sudo,
-		Timeout:           host.Timeout,
-		ProxyJump:         host.ProxyJump,
+		ID:                  host.ID,
+		Name:                host.Name,
+		Connection:          host.Connection,
+		Endpoint:            host.Endpoint,
+		Port:                host.Port,
+		User:                host.User,
+		KeyPath:             host.KeyPath,
+		Sudo:                host.Sudo,
+		Timeout:             host.Timeout,
+		ProxyJump:           host.ProxyJump,
 		CollectorPreference: host.CollectorPreference,
 	})
 	latency := time.Since(start)
