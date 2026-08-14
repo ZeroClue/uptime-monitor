@@ -1,0 +1,78 @@
+linters-settings:
+  govet:
+    check-shadowing: true
+  staticcheck:
+    checks: ["all", "-ST1000"]
+  gocyclo:
+    min-complexity: 20
+  gosec:
+    excludes:
+      - G104 # Errors unhandled
+      - G204 # Subprocess launched with variable
+      - G304 # File path as taint
+
+linters:
+  enable:
+    - govet
+    - staticcheck
+    - gocyclo
+    - gosec
+    - errcheck
+    - gosimple
+    - ineffassign
+    - unused
+    - misspell
+    - unconvert
+    - unparam
+    - nakedret
+    - prealloc
+    - typecheck
+    - bodyclose
+    - dupl
+    - goconst
+    - gocritic
+    - gocyclo
+    - gofmt
+    - goimports
+    - golint
+    - gosimple
+    - govet
+    - ineffassign
+    - misspell
+    - staticcheck
+    - structcheck
+    - typecheck
+    - unconvert
+    - unparam
+    - unused
+    - varcheck
+  disable:
+    - exhaustruct
+    - exhaustivestruct
+    - funlen
+    - gochecknoglobals
+    - gochecknoinits
+    - ifshort
+    - maligned
+    - nosprintfhostport
+    - paralleltest
+    - testpackage
+    - wsl
+  fast: false
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gosec
+        - gocyclo
+        - goconst
+        - dupl
+  exclude-use-default: false
+
+run:
+  timeout: 5m
+  tests: true
+  skip-dirs:
+    - vendor
+  modules-download-mode: readonly
