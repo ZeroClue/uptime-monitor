@@ -57,6 +57,7 @@ func (s *Server) Run(ctx context.Context) {
 	mux.HandleFunc("/api/hosts", s.authMiddleware(s.handleAPIHosts))
 	mux.HandleFunc("/api/host/", s.authMiddleware(s.handleAPIHost))
 	mux.HandleFunc("/api/compare", s.authMiddleware(s.handleAPICompare))
+	mux.HandleFunc("/api/projects", s.authMiddleware(s.handleAPIProjects))
 
 	s.server = &http.Server{
 		Addr:    ":8080",
@@ -208,7 +209,22 @@ func (s *Server) handleCompare(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
-	s.render(w, "projects.html", nil)
+	projects, err := s.db.GetProjects(r.Context())
+	if err != nil {
+		s.logger.Error("failed to get projects", "error", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+
+	statuses := s.sched.GetAllHostStatuses()
+	data := struct {
+		Projects []storage.Project
+		Statuses map[int64]*scheduler.HostStatus
+	}{
+		Projects: projects,
+		Statuses: statuses,
+	}
+	s.render(w, "projects.html", data)
 }
 
 func (s *Server) handleAlerts(w http.ResponseWriter, r *http.Request) {
@@ -231,6 +247,17 @@ func (s *Server) handleMonitor(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"status":"ok"}`))
+}
+
+func (s *Server) handleAPIProjects(w http.ResponseWriter, r *http.Request) {
+	projects, err := s.db.GetProjects(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(projects)
 }
 
 func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {

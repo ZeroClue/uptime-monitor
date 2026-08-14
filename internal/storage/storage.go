@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/ZeroClue/uptime-monitor/internal/collector"
@@ -405,6 +406,105 @@ func (db *DB) GetAlerts(ctx context.Context, hostID int64) ([]Alert, error) {
 		alerts = append(alerts, a)
 	}
 	return alerts, nil
+}
+
+type Project struct {
+	ID        int64
+	Name      string
+	Type      string // "tag_query" or "explicit"
+	TagQuery  string
+	HostIDs   []int64
+}
+
+func (db *DB) GetProjects(ctx context.Context) ([]Project, error) {
+	rows, err := db.QueryContext(ctx, `SELECT id, name, type, tag_query, host_ids FROM projects`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var projects []Project
+	for rows.Next() {
+		var p Project
+		var hostIDsJSON string
+		if err := rows.Scan(&p.ID, &p.Name, &p.Type, &p.TagQuery, &hostIDsJSON); err != nil {
+			return nil, err
+		}
+		if hostIDsJSON != "" {
+			json.Unmarshal([]byte(hostIDsJSON), &p.HostIDs)
+		}
+		projects = append(projects, p)
+	}
+	return projects, nil
+}
+
+func (db *DB) GetProjectHosts(ctx context.Context, project Project) ([]Host, error) {
+	var hosts []Host
+	if project.Type == "explicit" {
+		for _, id := range project.HostIDs {
+			row := db.QueryRowContext(ctx, `SELECT id, name, connection, endpoint, port, user, key_path, sudo, timeout, proxy_jump, tags, collector_preference FROM hosts WHERE id = ?`, id)
+			var h Host
+			var tagsJSON string
+			var timeoutRaw int64
+			if err := row.Scan(&h.ID, &h.Name, &h.Connection, &h.Endpoint, &h.Port, &h.User, &h.KeyPath, &h.Sudo, &timeoutRaw, &h.ProxyJump, &tagsJSON, &h.CollectorPreference); err == nil {
+				h.Timeout = time.Duration(timeoutRaw)
+				h.Tags = parseTags(tagsJSON)
+				hosts = append(hosts, h)
+			}
+		}
+	} else if project.Type == "tag_query" {
+		// Simple tag query: "tag1 AND tag2" or "tag1 OR tag2"
+		allHosts, err := db.GetHosts()
+		if err != nil {
+			return nil, err
+		}
+		for _, h := range allHosts {
+			if matchesTagQuery(h.Tags, project.TagQuery) {
+				hosts = append(hosts, h)
+			}
+		}
+	}
+	return hosts, nil
+}
+
+func matchesTagQuery(hostTags []string, query string) bool {
+	if query == "" {
+		return true
+	}
+	parts := strings.Split(query, " ")
+	if len(parts) == 1 {
+		return contains(hostTags, parts[0])
+	}
+	// Simple AND/OR logic
+	if parts[1] == "AND" {
+		return contains(hostTags, parts[0]) && contains(hostTags, parts[2])
+	}
+	if parts[1] == "OR" {
+		return contains(hostTags, parts[0]) || contains(hostTags, parts[2])
+	}
+	return false
+}
+
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
+}
+
+func (db *DB) GetProjectHealth(ctx context.Context, project Project) (string, error) {
+	hosts, err := db.GetProjectHosts(ctx, project)
+	if err != nil {
+		return "unknown", err
+	}
+	if len(hosts) == 0 {
+		return "ok", nil
+	}
+	// Health rollup: worst status (down > critical > warning > ok)
+	// Would need scheduler status - for now return ok
+	return "ok", nil
 }
 
 type Sample struct {

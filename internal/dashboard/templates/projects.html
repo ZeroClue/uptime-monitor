@@ -27,29 +27,34 @@
         <a href="/">← Back to hosts</a>
     </div>
     <div class="grid">
+        {{range .Projects}}
         <div class="card">
             <div class="card-header">
-                <h2>Web Production</h2>
+                <h2>{{.Name}}</h2>
                 <span class="status ok">OK</span>
             </div>
-            <div class="meta">Tag query: web AND prod</div>
+            <div class="meta">
+                {{if eq .Type "tag_query"}}
+                    Tag query: {{.TagQuery}}
+                {{else}}
+                    Explicit: {{len .HostIDs}} hosts
+                {{end}}
+            </div>
             <ul class="host-list">
-                <li>web-01 - OK</li>
-                <li>web-02 - OK</li>
+                {{range .HostIDs}}
+                    <li>Host ID: {{.}}</li>
+                {{end}}
             </ul>
         </div>
+        {{else}}
         <div class="card">
             <div class="card-header">
-                <h2>Database Cluster</h2>
-                <span class="status warning">WARNING</span>
+                <h2>No projects configured</h2>
+                <span class="status ok">OK</span>
             </div>
-            <div class="meta">Explicit: db-01, db-02, db-03</div>
-            <ul class="host-list">
-                <li>db-01 - OK</li>
-                <li>db-02 - HIGH CPU</li>
-                <li>db-03 - OK</li>
-            </ul>
+            <div class="meta">Add projects to config/projects.yaml</div>
         </div>
+        {{end}}
     </div>
 </body>
 </html>
