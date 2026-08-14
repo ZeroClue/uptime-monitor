@@ -27,22 +27,22 @@ open http://localhost:8080
 ## Architecture Summary
 
 ```
-��─────────────────��     SSH/Tailscale      ��──────────────��
-│   Monitor       │ ─────────────────────�� │   Hosts      │
-│  (Go binary)    │ ��───────────────────── │  (Linux)     │
-��────────��────────��   Metrics (JSON/text)  └──────────────��
-         │
-         ��
-��─────────────────��
-│   SQLite        │  ← Raw samples (7d), 1m aggregates (90d), 1h aggregates (forever)
-│  (embedded)     │
-��────────��────────��
-         │
-         ��
-��─────────────────��
-│   Dashboard     │  ← htmx + Chart.js, single-password auth
-│  (Go templates) │
-��─────────────────��
++-------------------+     SSH/Tailscale      +--------------+
+|     Monitor       |  <-------------------- |    Hosts     |
+|   (Go binary)     |   Metrics (JSON/text)  |   (Linux)    |
++--------+----------+ ---------------------> +--------------+
+         |
+         v
++-------------------+
+|      SQLite       |  <- Raw samples (7d), 1m aggregates (90d), 1h aggregates (forever)
+|    (embedded)     |
++--------+----------+
+         |
+         v
++-------------------+
+|     Dashboard     |  <- htmx + Chart.js, single-password auth
+|  (Go templates)   |
++-------------------+
 ```
 
 **Key Design Decisions:**
