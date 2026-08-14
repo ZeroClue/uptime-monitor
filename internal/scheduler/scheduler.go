@@ -46,8 +46,6 @@ func New(interval time.Duration, db *storage.DB, collectors *collector.Chain, lo
 }
 
 func (s *Scheduler) Run(ctx context.Context) {
-	rand.Seed(time.Now().UnixNano())
-
 	hosts, err := s.db.GetHosts()
 	if err != nil {
 		s.logger.Error("failed to get hosts for initial poll", "error", err)
@@ -88,14 +86,25 @@ func (s *Scheduler) pollAll(ctx context.Context) {
 		return
 	}
 
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+
 	var wg sync.WaitGroup
 	for _, h := range hosts {
 		wg.Add(1)
 		go func(host storage.Host) {
 			defer wg.Done()
-			jitter := time.Duration(rand.Int63n(int64(s.interval / 10)))
-			time.Sleep(jitter)
-			s.pollHost(ctx, host)
+			jitter := time.Duration(rng.Int63n(int64(s.interval / 10)))
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(jitter):
+			}
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				s.pollHost(ctx, host)
+			}
 		}(h)
 	}
 	wg.Wait()

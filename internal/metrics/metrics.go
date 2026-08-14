@@ -162,7 +162,11 @@ func (s *Server) handleAPIHostMetrics(w http.ResponseWriter, r *http.Request, ho
 		resolution = "1m"
 	}
 	
-	hosts, _ := s.db.GetHosts()
+	hosts, err := s.db.GetHosts()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	var h *storage.Host
 	for _, host := range hosts {
 		if fmt.Sprintf("%d", host.ID) == hostID || host.Name == hostID {

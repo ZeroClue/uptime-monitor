@@ -221,24 +221,24 @@ func (db *DB) SaveSamples(samples []collector.Sample) error {
 	return tx.Commit()
 }
 
+type resolutionConfig struct {
+	table    string
+	valueCol string
+}
+
+var resolutionMap = map[string]resolutionConfig{
+	"raw": {"samples_raw", "value"},
+	"1m":  {"samples_1m", "value_avg"},
+	"1h":  {"samples_1h", "value_avg"},
+}
+
 func (db *DB) GetSamples(ctx context.Context, hostID int64, metric string, from, to time.Time, resolution string) ([]Sample, error) {
-	var table, valueCol string
-	switch resolution {
-	case "raw":
-		table = "samples_raw"
-		valueCol = "value"
-	case "1m":
-		table = "samples_1m"
-		valueCol = "value_avg"
-	case "1h":
-		table = "samples_1h"
-		valueCol = "value_avg"
-	default:
-		table = "samples_raw"
-		valueCol = "value"
+	cfg, ok := resolutionMap[resolution]
+	if !ok {
+		cfg = resolutionMap["raw"]
 	}
 
-	query := fmt.Sprintf(`SELECT host_id, metric, %s, timestamp, '' FROM %s WHERE host_id = ? AND metric = ? AND timestamp >= ? AND timestamp <= ? ORDER BY timestamp`, valueCol, table)
+	query := `SELECT host_id, metric, ` + cfg.valueCol + `, timestamp, '' FROM ` + cfg.table + ` WHERE host_id = ? AND metric = ? AND timestamp >= ? AND timestamp <= ? ORDER BY timestamp`
 	rows, err := db.QueryContext(ctx, query, hostID, metric, from.Unix(), to.Unix())
 	if err != nil {
 		return nil, err
