@@ -203,18 +203,5 @@ func (p *ProcfsCollector) getUptime(ctx context.Context, host Host) (float64, er
 }
 
 func (p *ProcfsCollector) execCommand(ctx context.Context, host Host, cmd string) (string, error) {
-	args := []string{"ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-o", "ConnectTimeout=10"}
-	if host.Port != 0 {
-		args = append(args, "-p", fmt.Sprintf("%d", host.Port))
-	}
-	if host.KeyPath != "" {
-		args = append(args, "-i", host.KeyPath)
-	}
-	if host.ProxyJump != "" {
-		args = append(args, "-J", host.ProxyJump)
-	}
-	args = append(args, fmt.Sprintf("%s@%s", host.User, host.Endpoint), cmd)
-
-	p.logger.Debug("executing ssh", "host", host.Name, "cmd", cmd)
-	return runCommand(ctx, p.logger, args...)
+	return execSSH(ctx, p.logger, host, cmd, host.Timeout)
 }

@@ -11,7 +11,6 @@ import (
 	"github.com/ZeroClue/uptime-monitor/internal/config"
 	"github.com/ZeroClue/uptime-monitor/internal/collector"
 	"github.com/ZeroClue/uptime-monitor/internal/dashboard"
-	"github.com/ZeroClue/uptime-monitor/internal/metrics"
 	"github.com/ZeroClue/uptime-monitor/internal/scheduler"
 	"github.com/ZeroClue/uptime-monitor/internal/storage"
 )
@@ -75,11 +74,9 @@ func main() {
 	sched := scheduler.New(cfg.PollInterval, db, collectorChain, logger)
 	go sched.Run(ctx)
 
-	dashboardServer := dashboard.NewServer(cfg.DashboardPassword, db, sched, logger)
+	cookieSecure := os.Getenv("COOKIE_SECURE") == "true"
+	dashboardServer := dashboard.NewServer(cfg.DashboardPassword, db, sched, logger, cookieSecure)
 	go dashboardServer.Run(ctx)
-
-	metricsServer := metrics.NewServer(db, sched, logger)
-	go metricsServer.Run(ctx)
 
 	<-ctx.Done()
 	slog.Info("shutdown complete")

@@ -12,14 +12,15 @@ import (
 )
 
 type Scheduler struct {
-	interval     time.Duration
-	db           *storage.DB
-	collectors   *collector.Chain
-	logger       *slog.Logger
-	mu           sync.RWMutex
-	hostStatuses map[int64]*HostStatus
-	stopCh       chan struct{}
-	wg           sync.WaitGroup
+	interval       time.Duration
+	db             *storage.DB
+	collectors     *collector.Chain
+	logger         *slog.Logger
+	mu             sync.RWMutex
+	hostStatuses   map[int64]*HostStatus
+	stopCh         chan struct{}
+	wg             sync.WaitGroup
+	lastDownsample time.Time
 }
 
 type HostStatus struct {
@@ -45,6 +46,8 @@ func New(interval time.Duration, db *storage.DB, collectors *collector.Chain, lo
 }
 
 func (s *Scheduler) Run(ctx context.Context) {
+	rand.Seed(time.Now().UnixNano())
+
 	hosts, err := s.db.GetHosts()
 	if err != nil {
 		s.logger.Error("failed to get hosts for initial poll", "error", err)
@@ -97,8 +100,18 @@ func (s *Scheduler) pollAll(ctx context.Context) {
 	}
 	wg.Wait()
 
-	if err := s.db.Downsample(ctx); err != nil {
-		s.logger.Error("downsample failed", "error", err)
+	now := time.Now()
+	s.mu.Lock()
+	shouldDownsample := s.lastDownsample.IsZero() || now.Sub(s.lastDownsample) >= time.Minute
+	if shouldDownsample {
+		s.lastDownsample = now.Truncate(time.Minute)
+	}
+	s.mu.Unlock()
+
+	if shouldDownsample {
+		if err := s.db.Downsample(ctx); err != nil {
+			s.logger.Error("downsample failed", "error", err)
+		}
 	}
 	if err := s.db.Cleanup(ctx); err != nil {
 		s.logger.Error("cleanup failed", "error", err)
