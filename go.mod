@@ -1,6 +1,6 @@
 module github.com/ZeroClue/uptime-monitor
 
-go 1.25.0
+go 1.22
 
 require (
 	github.com/mattn/go-sqlite3 v1.14.49
