@@ -327,24 +327,30 @@ type Alert struct {
 	FiredAt        time.Time
 	AcknowledgedAt *time.Time
 	ResolvedAt     *time.Time
+	SilencedUntil  *time.Time
 }
 
 func (db *DB) InsertAlert(ctx context.Context, alert Alert) error {
+	var silencedUntil *int64
+	if alert.SilencedUntil != nil {
+		ts := alert.SilencedUntil.Unix()
+		silencedUntil = &ts
+	}
 	_, err := db.ExecContext(ctx, `
-		INSERT INTO alerts (host_id, type, metric, severity, message, value, threshold, fired_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	`, alert.HostID, alert.Type, alert.Metric, alert.Severity, alert.Message, alert.Value, alert.Threshold, alert.FiredAt.Unix())
+		INSERT INTO alerts (host_id, type, metric, severity, message, value, threshold, fired_at, silenced_until)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, alert.HostID, alert.Type, alert.Metric, alert.Severity, alert.Message, alert.Value, alert.Threshold, alert.FiredAt.Unix(), silencedUntil)
 	return err
 }
 
 func (db *DB) GetActiveAlert(ctx context.Context, hostID int64, alertType, metric string) (*Alert, error) {
-	query := `SELECT id, host_id, type, metric, severity, message, value, threshold, fired_at, acknowledged_at, resolved_at
+	query := `SELECT id, host_id, type, metric, severity, message, value, threshold, fired_at, acknowledged_at, resolved_at, silenced_until
 		FROM alerts WHERE host_id = ? AND type = ? AND (metric = ? OR metric IS NULL) AND acknowledged_at IS NULL AND resolved_at IS NULL
 		ORDER BY fired_at DESC LIMIT 1`
 	row := db.QueryRowContext(ctx, query, hostID, alertType, metric)
 	var a Alert
-	var firedAt, ackedAt, resolvedAt int64
-	err := row.Scan(&a.ID, &a.HostID, &a.Type, &a.Metric, &a.Severity, &a.Message, &a.Value, &a.Threshold, &firedAt, &ackedAt, &resolvedAt)
+	var firedAt, ackedAt, resolvedAt, silencedAt int64
+	err := row.Scan(&a.ID, &a.HostID, &a.Type, &a.Metric, &a.Severity, &a.Message, &a.Value, &a.Threshold, &firedAt, &ackedAt, &resolvedAt, &silencedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -359,6 +365,10 @@ func (db *DB) GetActiveAlert(ctx context.Context, hostID int64, alertType, metri
 	if resolvedAt > 0 {
 		t := time.Unix(resolvedAt, 0)
 		a.ResolvedAt = &t
+	}
+	if silencedAt > 0 {
+		t := time.Unix(silencedAt, 0)
+		a.SilencedUntil = &t
 	}
 	return &a, nil
 }
@@ -378,8 +388,16 @@ func (db *DB) AcknowledgeAlert(ctx context.Context, alertID int64) error {
 	return err
 }
 
+func (db *DB) SilenceAlert(ctx context.Context, alertID int64, duration time.Duration) error {
+	until := time.Now().Add(duration).Unix()
+	_, err := db.ExecContext(ctx, `
+		UPDATE alerts SET silenced_until = ? WHERE id = ?
+	`, until, alertID)
+	return err
+}
+
 func (db *DB) GetAlerts(ctx context.Context, hostID int64) ([]Alert, error) {
-	query := `SELECT id, host_id, type, metric, severity, message, value, threshold, fired_at, acknowledged_at, resolved_at
+	query := `SELECT id, host_id, type, metric, severity, message, value, threshold, fired_at, acknowledged_at, resolved_at, silenced_until
 		FROM alerts WHERE host_id = ? ORDER BY fired_at DESC`
 	rows, err := db.QueryContext(ctx, query, hostID)
 	if err != nil {
@@ -390,8 +408,8 @@ func (db *DB) GetAlerts(ctx context.Context, hostID int64) ([]Alert, error) {
 	var alerts []Alert
 	for rows.Next() {
 		var a Alert
-		var firedAt, ackedAt, resolvedAt int64
-		if err := rows.Scan(&a.ID, &a.HostID, &a.Type, &a.Metric, &a.Severity, &a.Message, &a.Value, &a.Threshold, &firedAt, &ackedAt, &resolvedAt); err != nil {
+		var firedAt, ackedAt, resolvedAt, silencedAt int64
+		if err := rows.Scan(&a.ID, &a.HostID, &a.Type, &a.Metric, &a.Severity, &a.Message, &a.Value, &a.Threshold, &firedAt, &ackedAt, &resolvedAt, &silencedAt); err != nil {
 			return nil, err
 		}
 		a.FiredAt = time.Unix(firedAt, 0)
@@ -402,6 +420,10 @@ func (db *DB) GetAlerts(ctx context.Context, hostID int64) ([]Alert, error) {
 		if resolvedAt > 0 {
 			t := time.Unix(resolvedAt, 0)
 			a.ResolvedAt = &t
+		}
+		if silencedAt > 0 {
+			t := time.Unix(silencedAt, 0)
+			a.SilencedUntil = &t
 		}
 		alerts = append(alerts, a)
 	}
@@ -494,7 +516,11 @@ func contains(slice []string, item string) bool {
 	return false
 }
 
-func (db *DB) GetProjectHealth(ctx context.Context, project Project) (string, error) {
+type HostStatusInfo struct {
+	ConsecutiveFails int
+}
+
+func (db *DB) GetProjectHealth(ctx context.Context, project Project, hostStatuses map[int64]HostStatusInfo) (string, error) {
 	hosts, err := db.GetProjectHosts(ctx, project)
 	if err != nil {
 		return "unknown", err
@@ -502,9 +528,31 @@ func (db *DB) GetProjectHealth(ctx context.Context, project Project) (string, er
 	if len(hosts) == 0 {
 		return "ok", nil
 	}
-	// Health rollup: worst status (down > critical > warning > ok)
-	// Would need scheduler status - for now return ok
-	return "ok", nil
+
+	worst := 0
+	for _, h := range hosts {
+		status := hostStatuses[h.ID]
+		hostStatus := 0
+		if status.ConsecutiveFails >= 3 {
+			hostStatus = 3
+		} else if status.ConsecutiveFails > 0 {
+			hostStatus = 2
+		}
+		if hostStatus > worst {
+			worst = hostStatus
+		}
+	}
+
+	switch worst {
+	case 3:
+		return "down", nil
+	case 2:
+		return "critical", nil
+	case 1:
+		return "warning", nil
+	default:
+		return "ok", nil
+	}
 }
 
 type Sample struct {

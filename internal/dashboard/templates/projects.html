@@ -31,7 +31,7 @@
         <div class="card">
             <div class="card-header">
                 <h2>{{.Name}}</h2>
-                <span class="status ok">OK</span>
+                <span class="status {{.Health}}">{{.Health}}</span>
             </div>
             <div class="meta">
                 {{if eq .Type "tag_query"}}

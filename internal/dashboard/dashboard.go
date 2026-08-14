@@ -55,7 +55,7 @@ func (s *Server) Run(ctx context.Context) {
 	mux.HandleFunc("/api/hosts", s.authMiddleware(s.handleAPIHosts))
 	mux.HandleFunc("/api/host/", s.authMiddleware(s.handleAPIHost))
 	mux.HandleFunc("/api/compare", s.authMiddleware(s.handleAPICompare))
-	mux.HandleFunc("/api/projects", s.authMiddleware(s.handleAPIProjects))
+	mux.HandleFunc("/api/alerts", s.authMiddleware(s.handleAPIAlerts))
 
 	s.server = &http.Server{
 		Addr:    ":8080",
@@ -215,11 +215,30 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 	}
 
 	statuses := s.sched.GetAllHostStatuses()
+
+	// Build host status info for project health
+	hostStatusInfo := make(map[int64]storage.HostStatusInfo)
+	for id, st := range statuses {
+		hostStatusInfo[id] = storage.HostStatusInfo{ConsecutiveFails: st.ConsecutiveFails}
+	}
+
+	// Compute health for each project
+	type ProjectWithHealth struct {
+		storage.Project
+		Health string
+	}
+
+	projectsWithHealth := make([]ProjectWithHealth, len(projects))
+	for i, p := range projects {
+		health, _ := s.db.GetProjectHealth(r.Context(), p, hostStatusInfo)
+		projectsWithHealth[i] = ProjectWithHealth{Project: p, Health: health}
+	}
+
 	data := struct {
-		Projects []storage.Project
+		Projects []ProjectWithHealth
 		Statuses map[int64]*scheduler.HostStatus
 	}{
-		Projects: projects,
+		Projects: projectsWithHealth,
 		Statuses: statuses,
 	}
 	s.render(w, "projects.html", data)
@@ -572,6 +591,52 @@ func (s *Server) handleAPICompare(w http.ResponseWriter, r *http.Request) {
 		"labels": labels,
 		"series": series,
 	})
+}
+
+func (s *Server) handleAPIAlerts(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		action := r.URL.Query().Get("action")
+		alertID := r.URL.Query().Get("id")
+		if action == "silence" && alertID != "" {
+			durationStr := r.URL.Query().Get("duration")
+			duration, err := time.ParseDuration(durationStr)
+			if err != nil {
+				duration = 1 * time.Hour // default 1 hour
+			}
+			if err := s.db.SilenceAlert(r.Context(), parseInt64(alertID), duration); err != nil {
+				s.logger.Error("failed to silence alert", "error", err)
+				http.Error(w, "Internal error", http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.Error(w, "Invalid action", http.StatusBadRequest)
+		return
+	}
+
+	// GET - list alerts
+	hostID := r.URL.Query().Get("host_id")
+	if hostID == "" {
+		http.Error(w, "host_id required", http.StatusBadRequest)
+		return
+	}
+
+	alerts, err := s.db.GetAlerts(r.Context(), parseInt64(hostID))
+	if err != nil {
+		s.logger.Error("failed to get alerts", "error", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(alerts)
+}
+
+func parseInt64(s string) int64 {
+	var n int64
+	fmt.Sscanf(s, "%d", &n)
+	return n
 }
 
 func (s *Server) render(w http.ResponseWriter, name string, data interface{}) {
