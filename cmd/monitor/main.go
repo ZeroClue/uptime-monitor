@@ -6,8 +6,10 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
+	"github.com/ZeroClue/uptime-monitor/internal/alerting"
 	"github.com/ZeroClue/uptime-monitor/internal/collector"
 	"github.com/ZeroClue/uptime-monitor/internal/config"
 	"github.com/ZeroClue/uptime-monitor/internal/dashboard"
@@ -73,6 +75,13 @@ func main() {
 
 	sched := scheduler.New(cfg.PollInterval, db, collectorChain, logger)
 	go sched.Run(ctx)
+
+	alertEngine := alerting.NewEngine(db, sched, logger)
+	configDir := *configPath
+	if err := alertEngine.LoadThresholds(filepath.Join(configDir, "thresholds.yaml")); err != nil {
+		slog.Warn("failed to load thresholds", "error", err)
+	}
+	go alertEngine.Run(ctx)
 
 	cookieSecure := os.Getenv("COOKIE_SECURE") == "true"
 	dashboardServer := dashboard.NewServer(cfg.DashboardPassword, db, sched, logger, cookieSecure)

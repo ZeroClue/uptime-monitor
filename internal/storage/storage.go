@@ -314,6 +314,99 @@ func (db *DB) Cleanup(ctx context.Context) error {
 	return nil
 }
 
+type Alert struct {
+	ID             int64
+	HostID         int64
+	Type           string
+	Metric         string
+	Severity       string
+	Message        string
+	Value          float64
+	Threshold      float64
+	FiredAt        time.Time
+	AcknowledgedAt *time.Time
+	ResolvedAt     *time.Time
+}
+
+func (db *DB) InsertAlert(ctx context.Context, alert Alert) error {
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO alerts (host_id, type, metric, severity, message, value, threshold, fired_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, alert.HostID, alert.Type, alert.Metric, alert.Severity, alert.Message, alert.Value, alert.Threshold, alert.FiredAt.Unix())
+	return err
+}
+
+func (db *DB) GetActiveAlert(ctx context.Context, hostID int64, alertType, metric string) (*Alert, error) {
+	query := `SELECT id, host_id, type, metric, severity, message, value, threshold, fired_at, acknowledged_at, resolved_at
+		FROM alerts WHERE host_id = ? AND type = ? AND (metric = ? OR metric IS NULL) AND acknowledged_at IS NULL AND resolved_at IS NULL
+		ORDER BY fired_at DESC LIMIT 1`
+	row := db.QueryRowContext(ctx, query, hostID, alertType, metric)
+	var a Alert
+	var firedAt, ackedAt, resolvedAt int64
+	err := row.Scan(&a.ID, &a.HostID, &a.Type, &a.Metric, &a.Severity, &a.Message, &a.Value, &a.Threshold, &firedAt, &ackedAt, &resolvedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	a.FiredAt = time.Unix(firedAt, 0)
+	if ackedAt > 0 {
+		t := time.Unix(ackedAt, 0)
+		a.AcknowledgedAt = &t
+	}
+	if resolvedAt > 0 {
+		t := time.Unix(resolvedAt, 0)
+		a.ResolvedAt = &t
+	}
+	return &a, nil
+}
+
+func (db *DB) UpdateAlert(ctx context.Context, alert *Alert) error {
+	_, err := db.ExecContext(ctx, `
+		UPDATE alerts SET value = ?, threshold = ?, message = ?, fired_at = ?
+		WHERE id = ?
+	`, alert.Value, alert.Threshold, alert.Message, alert.FiredAt.Unix(), alert.ID)
+	return err
+}
+
+func (db *DB) AcknowledgeAlert(ctx context.Context, alertID int64) error {
+	_, err := db.ExecContext(ctx, `
+		UPDATE alerts SET acknowledged_at = ? WHERE id = ?
+	`, time.Now().Unix(), alertID)
+	return err
+}
+
+func (db *DB) GetAlerts(ctx context.Context, hostID int64) ([]Alert, error) {
+	query := `SELECT id, host_id, type, metric, severity, message, value, threshold, fired_at, acknowledged_at, resolved_at
+		FROM alerts WHERE host_id = ? ORDER BY fired_at DESC`
+	rows, err := db.QueryContext(ctx, query, hostID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var alerts []Alert
+	for rows.Next() {
+		var a Alert
+		var firedAt, ackedAt, resolvedAt int64
+		if err := rows.Scan(&a.ID, &a.HostID, &a.Type, &a.Metric, &a.Severity, &a.Message, &a.Value, &a.Threshold, &firedAt, &ackedAt, &resolvedAt); err != nil {
+			return nil, err
+		}
+		a.FiredAt = time.Unix(firedAt, 0)
+		if ackedAt > 0 {
+			t := time.Unix(ackedAt, 0)
+			a.AcknowledgedAt = &t
+		}
+		if resolvedAt > 0 {
+			t := time.Unix(resolvedAt, 0)
+			a.ResolvedAt = &t
+		}
+		alerts = append(alerts, a)
+	}
+	return alerts, nil
+}
+
 type Sample struct {
 	HostID    int64
 	Metric    string
