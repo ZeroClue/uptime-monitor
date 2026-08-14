@@ -12,15 +12,14 @@ import (
 )
 
 type Scheduler struct {
-	interval       time.Duration
-	db             *storage.DB
-	collectors     *collector.Chain
-	logger         *slog.Logger
-	mu             sync.RWMutex
-	hostStatuses   map[int64]*HostStatus
-	stopCh         chan struct{}
-	wg             sync.WaitGroup
-	lastDownsample time.Time
+	interval     time.Duration
+	db           *storage.DB
+	collectors   *collector.Chain
+	logger       *slog.Logger
+	mu           sync.RWMutex
+	hostStatuses map[int64]*HostStatus
+	stopCh       chan struct{}
+	wg           sync.WaitGroup
 }
 
 type HostStatus struct {
@@ -58,8 +57,14 @@ func (s *Scheduler) Run(ctx context.Context) {
 
 	s.pollAll(ctx)
 
-	ticker := time.NewTicker(s.interval)
-	defer ticker.Stop()
+	pollTicker := time.NewTicker(s.interval)
+	defer pollTicker.Stop()
+
+	downsampleTicker := time.NewTicker(time.Minute)
+	defer downsampleTicker.Stop()
+
+	cleanupTicker := time.NewTicker(24 * time.Hour)
+	defer cleanupTicker.Stop()
 
 	for {
 		select {
@@ -69,8 +74,16 @@ func (s *Scheduler) Run(ctx context.Context) {
 		case <-s.stopCh:
 			s.wg.Wait()
 			return
-		case <-ticker.C:
+		case <-pollTicker.C:
 			s.pollAll(ctx)
+		case <-downsampleTicker.C:
+			if err := s.db.Downsample(ctx); err != nil {
+				s.logger.Error("scheduled downsample failed", "error", err)
+			}
+		case <-cleanupTicker.C:
+			if err := s.db.Cleanup(ctx); err != nil {
+				s.logger.Error("scheduled cleanup failed", "error", err)
+			}
 		}
 	}
 }
@@ -108,23 +121,6 @@ func (s *Scheduler) pollAll(ctx context.Context) {
 		}(h)
 	}
 	wg.Wait()
-
-	now := time.Now()
-	s.mu.Lock()
-	shouldDownsample := s.lastDownsample.IsZero() || now.Sub(s.lastDownsample) >= time.Minute
-	if shouldDownsample {
-		s.lastDownsample = now.Truncate(time.Minute)
-	}
-	s.mu.Unlock()
-
-	if shouldDownsample {
-		if err := s.db.Downsample(ctx); err != nil {
-			s.logger.Error("downsample failed", "error", err)
-		}
-	}
-	if err := s.db.Cleanup(ctx); err != nil {
-		s.logger.Error("cleanup failed", "error", err)
-	}
 }
 
 func (s *Scheduler) pollHost(ctx context.Context, host storage.Host) {
