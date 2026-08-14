@@ -302,9 +302,16 @@ func (s *Server) handleAPIHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(parts) >= 3 && parts[1] == "metrics" {
-		s.handleAPIHostMetrics(w, r, hostID)
-		return
+	// Support both /api/host/:id/metrics (all metrics) and /api/host/:id/metric/:metric (single metric)
+	if len(parts) >= 3 {
+		if parts[1] == "metrics" {
+			s.handleAPIHostMetrics(w, r, hostID)
+			return
+		}
+		if parts[1] == "metric" {
+			s.handleAPIHostMetric(w, r, hostID, parts[2])
+			return
+		}
 	}
 
 	http.NotFound(w, r)
@@ -375,6 +382,117 @@ func (s *Server) handleAPIHostMetrics(w http.ResponseWriter, r *http.Request, ho
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"metrics": result})
+}
+
+func (s *Server) handleAPIHostMetric(w http.ResponseWriter, r *http.Request, hostID, metric string) {
+	timeRange := r.URL.Query().Get("timeRange")
+	resolution := r.URL.Query().Get("resolution")
+
+	var from, to time.Time
+	now := time.Now()
+
+	switch timeRange {
+	case "1h":
+		from = now.Add(-1 * time.Hour)
+	case "6h":
+		from = now.Add(-6 * time.Hour)
+	case "24h":
+		from = now.Add(-24 * time.Hour)
+	case "7d":
+		from = now.Add(-7 * 24 * time.Hour)
+	case "30d":
+		from = now.Add(-30 * 24 * time.Hour)
+	default:
+		from = now.Add(-6 * time.Hour)
+	}
+	to = now
+
+	if resolution == "" {
+		resolution = "1m"
+	}
+
+	hosts, _ := s.db.GetHosts()
+	var h *storage.Host
+	for _, host := range hosts {
+		if fmt.Sprintf("%d", host.ID) == hostID || host.Name == hostID {
+			h = &host
+			break
+		}
+	}
+
+	if h == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	samples, err := s.db.GetSamples(r.Context(), h.ID, metric, from, to, resolution)
+	if err != nil {
+		s.logger.Error("failed to get samples", "metric", metric, "error", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+
+	// Return HTMX partial fragment with chart
+	data := make([][2]float64, len(samples))
+	for i, s := range samples {
+		data[i] = [2]float64{float64(s.Timestamp.Unix()), s.Value}
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	s.renderMetricPanel(w, metric, data)
+}
+
+func (s *Server) renderMetricPanel(w http.ResponseWriter, metric string, data [][2]float64) {
+	timestamps := make([]string, len(data))
+	values := make([]float64, len(data))
+	for i, d := range data {
+		timestamps[i] = time.Unix(int64(d[0]), 0).Format("15:04")
+		values[i] = d[1]
+	}
+
+	// Render HTMX partial with Chart.js chart
+	valuesJSON := formatFloatArray(values)
+	html := fmt.Sprintf(`
+<div class="chart-container" hx-get="/api/host/%%d/metric/%s?timeRange=%%s&resolution=%%s" hx-trigger="load" hx-target="this" hx-swap="innerHTML">
+    <canvas id="metric-%s"></canvas>
+</div>
+<script>
+    const ctx = document.getElementById('metric-%s').getContext('2d');
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: %s,
+            datasets: [{ label: '%s', data: %s, borderColor: '#0066cc', fill: false, tension: 0.1, pointRadius: 0 }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false } }
+    });
+</script>
+`, metric, metric, metric, formatJSONArray(timestamps), metric, valuesJSON)
+	w.Write([]byte(html))
+}
+
+func formatFloatArray(arr []float64) string {
+	result := "["
+	for i, v := range arr {
+		if i > 0 {
+			result += ","
+		}
+		result += fmt.Sprintf("%.2f", v)
+	}
+	result += "]"
+	return result
+}
+
+func formatJSONArray(arr []string) string {
+	result := "["
+	for i, s := range arr {
+		if i > 0 {
+			result += ","
+		}
+		result += `"` + s + `"`
+	}
+	result += "]"
+	return result
 }
 
 func (s *Server) handleAPICompare(w http.ResponseWriter, r *http.Request) {
