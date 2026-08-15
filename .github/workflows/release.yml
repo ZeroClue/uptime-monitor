@@ -36,8 +36,8 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}:${{ steps.version.outputs.VERSION }}
-            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository_owner }}/uptime-monitor:${{ steps.version.outputs.VERSION }}
+            ghcr.io/${{ github.repository_owner }}/uptime-monitor:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
