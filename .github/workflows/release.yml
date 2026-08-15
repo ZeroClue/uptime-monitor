@@ -36,8 +36,8 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/uptime-monitor:${{ steps.version.outputs.VERSION }}
-            ghcr.io/${{ github.repository_owner }}/uptime-monitor:latest
+            ghcr.io/zeroclue/uptime-monitor:${{ steps.version.outputs.VERSION }}
+            ghcr.io/zeroclue/uptime-monitor:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
