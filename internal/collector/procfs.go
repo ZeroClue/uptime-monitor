@@ -8,14 +8,32 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/ZeroClue/uptime-monitor/internal/ssh"
 )
 
 type ProcfsCollector struct {
-	logger *slog.Logger
+	logger    *slog.Logger
+	sshClient ssh.SSHClient
 }
 
-func NewProcfsCollector() *ProcfsCollector {
-	return &ProcfsCollector{logger: slog.Default()}
+type ProcfsOption func(*ProcfsCollector)
+
+func WithProcfsSSHClient(client ssh.SSHClient) ProcfsOption {
+	return func(p *ProcfsCollector) {
+		p.sshClient = client
+	}
+}
+
+func NewProcfsCollector(opts ...ProcfsOption) *ProcfsCollector {
+	p := &ProcfsCollector{logger: slog.Default()}
+	for _, opt := range opts {
+		opt(p)
+	}
+	if p.sshClient == nil {
+		p.sshClient = ssh.NewSSHClient(p.logger, nil)
+	}
+	return p
 }
 
 func (p *ProcfsCollector) Name() string {
@@ -203,5 +221,6 @@ func (p *ProcfsCollector) getUptime(ctx context.Context, host Host) (float64, er
 }
 
 func (p *ProcfsCollector) execCommand(ctx context.Context, host Host, cmd string) (string, error) {
-	return execSSH(ctx, p.logger, host, cmd, host.Timeout)
+	target := SSHTargetFromHost(host)
+	return p.sshClient.Exec(ctx, target, cmd)
 }

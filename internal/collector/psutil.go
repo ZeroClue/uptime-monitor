@@ -6,14 +6,32 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
+
+	"github.com/ZeroClue/uptime-monitor/internal/ssh"
 )
 
 type PsutilCollector struct {
-	logger *slog.Logger
+	logger    *slog.Logger
+	sshClient ssh.SSHClient
 }
 
-func NewPsutilCollector() *PsutilCollector {
-	return &PsutilCollector{logger: slog.Default()}
+type PsutilOption func(*PsutilCollector)
+
+func WithPsutilSSHClient(client ssh.SSHClient) PsutilOption {
+	return func(p *PsutilCollector) {
+		p.sshClient = client
+	}
+}
+
+func NewPsutilCollector(opts ...PsutilOption) *PsutilCollector {
+	p := &PsutilCollector{logger: slog.Default()}
+	for _, opt := range opts {
+		opt(p)
+	}
+	if p.sshClient == nil {
+		p.sshClient = ssh.NewSSHClient(p.logger, nil)
+	}
+	return p
 }
 
 func (p *PsutilCollector) Name() string {
@@ -22,7 +40,8 @@ func (p *PsutilCollector) Name() string {
 
 func (p *PsutilCollector) Collect(ctx context.Context, host Host) ([]Sample, error) {
 	cmd := buildPsutilCommand(host)
-	output, err := p.execSSH(ctx, host, cmd)
+	target := SSHTargetFromHost(host)
+	output, err := p.sshClient.Exec(ctx, target, cmd)
 	if err != nil {
 		return nil, fmt.Errorf("ssh exec failed: %w", err)
 	}
@@ -115,8 +134,4 @@ func (p *PsutilCollector) convertToSamples(hostID int64, data PsutilOutput) []Sa
 	}
 
 	return samples
-}
-
-func (p *PsutilCollector) execSSH(ctx context.Context, host Host, cmd string) (string, error) {
-	return execSSH(ctx, p.logger, host, cmd, host.Timeout)
 }

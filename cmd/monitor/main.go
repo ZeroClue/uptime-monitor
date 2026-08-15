@@ -14,6 +14,7 @@ import (
 	"github.com/ZeroClue/uptime-monitor/internal/config"
 	"github.com/ZeroClue/uptime-monitor/internal/dashboard"
 	"github.com/ZeroClue/uptime-monitor/internal/scheduler"
+	"github.com/ZeroClue/uptime-monitor/internal/ssh"
 	"github.com/ZeroClue/uptime-monitor/internal/storage"
 )
 
@@ -68,10 +69,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	sshClient := ssh.NewSSHClient(logger, nil)
+
 	collectorChain := collector.NewChain(
-		collector.NewPsutilCollector(),
-		collector.NewProcfsCollector(),
-		collector.NewTailscaleCollector(),
+		collector.NewPsutilCollector(collector.WithPsutilSSHClient(sshClient)),
+		collector.NewProcfsCollector(collector.WithProcfsSSHClient(sshClient)),
+		collector.NewTailscaleCollector(collector.WithTailscaleSSHClient(sshClient)),
 	)
 
 	sched := scheduler.New(cfg.PollInterval, db, collectorChain, logger)
