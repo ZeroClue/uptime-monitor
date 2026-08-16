@@ -6,22 +6,42 @@ Get the uptime monitor running locally or on a server in under 5 minutes.
 
 - Docker & Docker Compose installed
 - Target Linux hosts accessible via SSH (or Tailscale)
-- SSH key pair for the monitoring user
+- SSH key pair for the monitoring user (optional if using Tailscale SSH)
 
 ---
 
-## 1. Generate SSH Keys
+## 1. Generate SSH Keys (Optional with Tailscale SSH)
 
 ```bash
 # On your local machine (or the monitor host)
 mkdir -p config/keys
 ssh-keygen -t ed25519 -f config/keys/id_ed25519 -N ""
 
-# Copy public key to each target host
+# Copy public key to each target host (skip if using Tailscale SSH)
 ssh-copy-id -i config/keys/id_ed25519.pub user@target-host
 ```
 
 > **Tip:** Create a dedicated `monitor` user on target hosts with passwordless sudo for `df` and `/proc` access if needed.
+>
+> **Skip SSH keys entirely** — use [Tailscale SSH](#tailscale-ssh-keyless-authentication) for keyless authentication via Tailscale ACLs.
+
+---
+
+## 1.5. Tailscale SSH (Keyless Authentication) — Skip SSH Keys!
+
+If your hosts are on Tailscale, you can skip SSH keys entirely by using Tailscale's ACL-based SSH authentication.
+
+1. **Generate auth key** in Tailscale admin console (Ephemeral + Pre-authorized + Tag: `tag:monitor`)
+2. **Create ACL policy** allowing `tag:monitor` → `tag:server` on port 22
+3. **Add to `.env`**:
+   ```bash
+   TS_AUTHKEY=tskey-auth-xxxxxxxxxxxx
+   TS_HOSTNAME=uptime-monitor
+   ```
+4. **Tag target hosts** with `tag:server` in Tailscale admin console
+5. **Configure hosts** with `connection: tailscale` and **no `key_path`** — Tailscale SSH handles auth automatically!
+
+See [README.md#tailscale-ssh-keyless-authentication](README.md#tailscale-ssh-keyless-authentication) for full setup.
 
 ---
 
@@ -49,9 +69,11 @@ hosts:
     connection: tailscale
     endpoint: 100.64.1.5   # Tailscale IP
     user: monitor
-    key_path: /keys/id_ed25519
+    # key_path: NOT NEEDED with Tailscale SSH!
     tags: [db, production]
 ```
+
+> **Note:** With Tailscale SSH, omit `key_path` entirely — authentication happens via Tailscale's ACL-based certificates.
 
 ---
 
@@ -167,6 +189,7 @@ docker pull ghcr.io/zeroclue/uptime-monitor:latest
 | Host shows DOWN | Check SSH key, user exists, `sudo` for `df`, firewall allows port 22 |
 | No metrics | Check `sudo` for `df`, target has `psutil` or `/proc` readable |
 | Dashboard not loading | Check `DASHBOARD_PASSWORD` set, port 8080 not in use |
+| Tailscale auth fails | Check `TS_AUTHKEY` is valid, host has `tailscaled` running, ACL policy allows `tag:monitor` → `tag:server` |
 
 ---
 

@@ -14,6 +14,16 @@ services:
       - DASHBOARD_PASSWORD=${DASHBOARD_PASSWORD:-changeme}
       - POLL_INTERVAL=${POLL_INTERVAL:-30s}
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      # Tailscale configuration (optional)
+      - TS_AUTHKEY=${TS_AUTHKEY:-}
+      - TS_HOSTNAME=${TS_HOSTNAME:-uptime-monitor}
+      - TS_ROUTES=${TS_ROUTES:-}
+      - TS_EXTRA_ARGS=${TS_EXTRA_ARGS:-}
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    devices:
+      - /dev/net/tun:/dev/net/tun
     network_mode: host
     restart: unless-stopped
     healthcheck:
@@ -28,9 +38,9 @@ services:
         max-size: "10m"
         max-file: "3"
 
-# Optional: Run with `docker-compose --profile tailscale up` for Tailscale sidecar (v2)
+# Alternative: Tailscale sidecar pattern (uncomment and comment out monitor's Tailscale env vars above)
 # profiles:
-#   tailscale:
+#   tailscale-sidecar:
 #     services:
 #       tailscale:
 #         image: tailscale/tailscale:latest
@@ -43,4 +53,9 @@ services:
 #           - ./tailscale-state:/var/lib/tailscale
 #         environment:
 #           - TS_AUTHKEY=${TS_AUTHKEY}
-#           - TS_HOSTNAME=uptime-monitor
+#           - TS_HOSTNAME=uptime-monitor-sidecar
+#       monitor:
+#         environment:
+#           - TS_SOCKS5_PROXY=tailscale:1055
+#         depends_on:
+#           - tailscale
