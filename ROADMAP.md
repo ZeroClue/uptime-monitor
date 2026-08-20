@@ -27,7 +27,7 @@
 - [x] Time range selector (1h, 6h, 24h, 7d, 30d)
 - [x] Resolution selector (raw, 1m, 1h)
 - [x] Dynamic metric discovery API
-- [x] htmx-based reactive UI
+- [x] Chart.js client-side rendering (htmx removed in Phase 2 redesign, see ADR-0005/0006)
 
 ### Authentication
 - [x] Single-password login
@@ -46,18 +46,18 @@
 - [ ] **Filesystem details** - multiple mount points, inodes
 
 ### Alerting System (DB schema exists, needs UI)
+- [x] **Alert silencing/acknowledgment** — UI for existing DB schema (acknowledge + silence wired in v0.3.0)
 - [ ] **Alert configuration UI** - create/edit thresholds per host/project
 - [ ] **Threshold types** - CPU%, memory%, disk%, load, network
 - [ ] **Notification channels** - Email, webhook, Slack, PagerDuty
 - [ ] **Alert history page** - view past alerts, silence/unmute
-- [ ] **Alert silencing/acknowledgment** - UI for existing DB schema
 
 ### Dashboard Improvements
+- [x] **Dark mode** - CSS variables toggle (v0.3.0, persisted + themed charts)
+- [x] **Project-level views** - aggregate health across hosts (v0.3.0)
+- [x] **Compare hosts** - side-by-side charts (v0.3.0) + per-host last-value table
+- [x] **Real-time updates** - interval-based auto-refresh (30s/60s, paused when hidden)
 - [ ] **Alert configuration UI** - create/edit thresholds per host/project
-- [ ] **Project-level views** - aggregate health across hosts
-- [ ] **Compare hosts** - side-by-side charts (API exists)
-- [ ] **Real-time updates** - WebSocket or SSE for live charts
-- [ ] **Dark mode** - CSS variables toggle
 - [ ] **Host tags filtering** on main list
 
 ---

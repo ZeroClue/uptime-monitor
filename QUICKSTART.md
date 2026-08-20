@@ -138,7 +138,7 @@ Open http://localhost:8080 and log in with the password.
 
 ```bash
 # The image is on GHCR (private by default)
-docker pull ghcr.io/zeroclue/uptime-monitor:0.1.0
+docker pull ghcr.io/zeroclue/uptime-monitor:0.3.0
 # or
 docker pull ghcr.io/zeroclue/uptime-monitor:latest
 

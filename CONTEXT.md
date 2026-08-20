@@ -54,7 +54,7 @@ hosts:
 | Real-time updates | Poll on load + manual refresh | No WebSocket complexity |
 | Dashboard views | Host list (table/tiles), host detail, multi-host compare, alert panel, project health overview | Covers operational workflows |
 | Dashboard framework | Go + Chart.js (embedded via go:embed) | Single binary, no build step, lightweight; htmx removed |
-| Dashboard theme | Dark default + light toggle, persisted in localStorage | Grafana-style ops look; charts restyle on toggle |
+| Dashboard theme | Dark default + light toggle, persisted in localStorage | Grafana-style ops look; charts restyle on toggle (ADR-0006) |
 | Dashboard auth | Single shared password (env var) | Simplest viable auth |
 | Host auth | SSH key per host (configurable per host) | Standard, flexible |
 | Project model | Tag-based + explicit projects | Ad-hoc queries + structured dashboards |

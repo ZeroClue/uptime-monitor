@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-20
+
 ### Added
 - **Dashboard redesign (issue #20)** — Grafana-style dark/light theme with persisted toggle, shared base layout, and themed charts across all pages
 - **Host list** — dense sortable table (default) with live CPU/MEM/Uptime values + compact tiles toggle; deep-linkable `?view=table|tiles`, 30s auto-refresh
@@ -43,6 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Backward-compatible `execSSH` wrapper in `collector/ssh.go`
 
 ### Fixed
+- **Release changelog empty** — release workflow did a shallow checkout (`fetch-depth: 1`), so `git describe --tags --abbrev=0 HEAD^` failed and no release body was generated; `actions/checkout` now uses `fetch-depth: 0` (#30)
 - **Charts not rendering** — host/compare/monitor pages fetched metric keys that no longer existed; canvases now render from the JSON API on DOMContentLoaded
 - **Blank network chart** — `pickDefaultInterface` received the names array instead of the object, returning index `"0"` (no matching interface)
 - **uptime.seconds and cpu.load_* zeroed** — SSH `Warning: Permanently added ... to the list of known hosts.` stderr line was parsed as field[0]; fixed with `-o LogLevel=ERROR` and parsers that scan for the first numeric token
@@ -65,6 +68,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Storage** — 6 focused domain stores with explicit interfaces (HostStore, SampleStore, AlertStore, ProjectStore, Downsampler, Cleanup)
 - **Scheduler** — background downsampling (minute) and cleanup (daily) tickers
 - **Dashboard** — Chart.js client-side charts fed by the `/api/host/:id/metrics` and `/api/host/:id/metric/:metric` JSON endpoints; templates + static assets embedded via `go:embed`
+- **Design system** — Nord-inspired dark/light theme with persisted toggle, themed charts; documented in ADR-0006
 
 ## [0.1.0] - 2026-08-15
 
