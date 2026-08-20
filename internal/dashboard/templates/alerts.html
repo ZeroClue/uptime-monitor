@@ -1,27 +1,14 @@
 {{define "title"}}Alerts{{end}}
 {{define "content"}}
-<style>
-    .alert { background: white; border-radius: 8px; padding: 15px; margin-bottom: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border-left: 4px solid; }
-    .alert.warning { border-color: #e65100; }
-    .alert.critical { border-color: #c62828; }
-    .alert.down { border-color: #616161; }
-    .alert-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-    .alert-title { font-weight: bold; }
-    .alert-meta { font-size: 0.85em; color: #666; }
-    .btn-ack { background: #0066cc; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.85em; }
-    .btn-ack:hover { background: #0052a3; }
-    .btn-ack.acked { background: #616161; cursor: default; }
-    .empty { color: #666; text-align: center; padding: 60px 0; }
-    .alert.acked { opacity: 0.6; }
-</style>
 <div class="header">
     <h1>Alerts</h1>
+    <span class="sub">{{len .Alerts}} active</span>
 </div>
 {{range .Alerts}}
 <div class="alert {{if eq .Severity "critical"}}critical{{else if eq .Type "collection_failure"}}down{{else}}warning{{end}}{{if .AcknowledgedAt}} acked{{end}}">
     <div class="alert-header">
         <span class="alert-title">{{if .HostName}}{{.HostName}}{{else}}Host #{{.HostID}}{{end}}: {{.Type}}</span>
-        {{if .AcknowledgedAt}}<button class="btn-ack acked">Acknowledged</button>{{else}}<button class="btn-ack" data-alert-id="{{.ID}}" onclick="acknowledgeAlert(this)">Acknowledge</button>{{end}}
+        {{if .AcknowledgedAt}}<button class="btn-ack acked" disabled>✓ Acknowledged</button>{{else}}<button class="btn-ack" data-alert-id="{{.ID}}" onclick="acknowledgeAlert(this)">Acknowledge</button>{{end}}
     </div>
     <div class="alert-meta">
         {{if .Metric}}{{.Metric}}: {{end}}{{.Message}} · Severity: {{.Severity}} · Fired: {{.FiredAt.Format "2006-01-02 15:04:05"}}
@@ -40,7 +27,8 @@
                 const alert = btn.closest('.alert');
                 alert.classList.add('acked');
                 btn.classList.add('acked');
-                btn.textContent = 'Acknowledged';
+                btn.disabled = true;
+                btn.textContent = '✓ Acknowledged';
             })
             .catch(err => console.error('Failed to acknowledge alert:', err));
     }

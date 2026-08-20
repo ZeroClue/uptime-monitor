@@ -1,18 +1,5 @@
 {{define "title"}}Projects{{end}}
 {{define "content"}}
-<style>
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
-    .card { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-    .status { padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; }
-    .status.ok { background: #e8f5e9; color: #2e7d32; }
-    .status.warning { background: #fff3e0; color: #e65100; }
-    .status.critical { background: #fce4ec; color: #c62828; }
-    .status.down { background: #fafafa; color: #616161; }
-    .meta { font-size: 0.85em; color: #666; }
-    .host-list { margin-top: 10px; font-size: 0.85em; }
-    .host-list li { margin: 5px 0; }
-</style>
 <div class="header">
     <h1>Projects</h1>
 </div>
@@ -20,7 +7,7 @@
     {{range .Projects}}
     <div class="card">
         <div class="card-header">
-            <h2>{{.Name}}</h2>
+            <h2 class="card-title">{{.Name}}</h2>
             <span class="status {{.Health}}">{{.Health}}</span>
         </div>
         <div class="meta">
@@ -39,7 +26,7 @@
     {{else}}
     <div class="card">
         <div class="card-header">
-            <h2>No projects configured</h2>
+            <h2 class="card-title">No projects configured</h2>
             <span class="status ok">OK</span>
         </div>
         <div class="meta">Add projects to config/projects.yaml</div>

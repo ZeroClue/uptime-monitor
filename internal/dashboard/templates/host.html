@@ -1,30 +1,12 @@
 {{define "title"}}{{.Name}}{{end}}
 {{define "content"}}
-<style>
-    .controls { background: white; padding: 15px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    .controls select, .controls button { padding: 8px 12px; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; }
-    .controls button { background: #f5f5f5; cursor: pointer; }
-    .controls button.active { background: #0066cc; color: white; border-color: #0066cc; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(500px, 1fr)); gap: 20px; }
-    .panel { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    .panel h3 { margin: 0 0 15px 0; }
-    .chart-container { height: 300px; position: relative; }
-    .meta { font-size: 0.85em; color: #666; margin-bottom: 15px; }
-    .tags { margin-top: 10px; }
-    .tag { display: inline-block; background: #e3f2fd; color: #1565c0; padding: 2px 8px; border-radius: 12px; font-size: 0.75em; margin-right: 5px; }
-    .panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-    .panel-head h3 { margin: 0; }
-    .panel-head select { padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.85em; }
-    .loading, .empty { color: #666; text-align: center; padding: 60px 0; }
-    .error { color: #c62828; text-align: center; padding: 60px 0; }
-</style>
 <div class="header">
     <h1>{{.Name}}</h1>
     <span id="uptimeLabel" class="uptime-label">Uptime: —</span>
 </div>
 <div class="meta">{{.Connection}}://{{.Endpoint}}:{{.Port}} · User: {{.User}} · Tags: {{range .Tags}}<span class="tag">{{.}}</span>{{end}}</div>
 <div class="controls">
-    <label>Time range: </label>
+    <label for="timeRange">Time range</label>
     <select id="timeRange" onchange="loadMetrics()">
         <option value="1h">Last hour</option>
         <option value="6h" selected>Last 6 hours</option>
@@ -32,25 +14,35 @@
         <option value="7d">Last 7 days</option>
         <option value="30d">Last 30 days</option>
     </select>
-    <label>Resolution: </label>
+    <label for="resolution">Resolution</label>
     <select name="resolution" id="resolution" onchange="loadMetrics()">
         <option value="raw">Raw (30s)</option>
         <option value="1m" selected>1 minute</option>
         <option value="1h">1 hour</option>
     </select>
 </div>
-<div id="charts" class="grid">
+<div id="charts" class="grid-panels">
     <div id="loading" class="loading">Loading…</div>
 </div>
-<script src="/static/chart.min.js"></script>
 <script>
     const HOST_ID = {{.ID}};
-    const PALETTE = ['#0066cc', '#e65100', '#2e7d32', '#c62828', '#6a1b9a', '#00838f', '#f57c00', '#006064', '#311b92', '#b71c1c'];
     const charts = {};
     let allMetrics = {};
     let netInterfaces = {};
 
     const PHYSICAL_RE = /^(eth|enp|ens|en|wlan|wlp|tailscale)/;
+
+    function cssVar(name) {
+        return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    }
+
+    function palette() {
+        return [
+            cssVar('--series-1'), cssVar('--series-2'), cssVar('--series-3'),
+            cssVar('--series-4'), cssVar('--series-5'), cssVar('--series-6'),
+            cssVar('--accent'), cssVar('--ok'), cssVar('--warn'), cssVar('--crit')
+        ];
+    }
 
     function metricLabel(name, prefix) {
         return name.startsWith(prefix) ? name.slice(prefix.length) : name;
@@ -88,6 +80,21 @@
         return data.map(d => new Date(d[0] * 1000).toLocaleTimeString());
     }
 
+    function chartOptions() {
+        return {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { display: true, position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } }
+            },
+            scales: {
+                x: { ticks: { color: cssVar('--text-dim'), font: { family: cssVar('--mono') } }, grid: { color: cssVar('--border') } },
+                y: { beginAtZero: false, ticks: { maxTicksLimit: 6, color: cssVar('--text-dim'), font: { family: cssVar('--mono') } }, grid: { color: cssVar('--border') } }
+            }
+        };
+    }
+
     function renderChart(canvasId, title, series) {
         const canvas = document.getElementById(canvasId);
         if (!canvas) return;
@@ -96,12 +103,13 @@
             canvas.parentElement.innerHTML = '<div class="empty">No data in range</div>';
             return;
         }
+        const colors = palette();
         const labels = labelsFrom(series[0].data);
         const datasets = series.map((s, i) => ({
             label: s.label,
             data: s.data.map(d => d[1]),
-            borderColor: PALETTE[i % PALETTE.length],
-            backgroundColor: PALETTE[i % PALETTE.length] + '22',
+            borderColor: colors[i % colors.length],
+            backgroundColor: colors[i % colors.length] + '22',
             fill: false,
             tension: 0.1,
             pointRadius: 0,
@@ -110,13 +118,7 @@
         charts[canvasId] = new Chart(canvas.getContext('2d'), {
             type: 'line',
             data: { labels, datasets },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                interaction: { mode: 'index', intersect: false },
-                plugins: { legend: { display: true, position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } },
-                scales: { y: { beginAtZero: false, ticks: { maxTicksLimit: 6 } } }
-            }
+            options: chartOptions()
         });
     }
 
@@ -163,6 +165,30 @@
         renderChart('netChart', 'Network: ' + iface, series);
     }
 
+    function lastValue(series) {
+        return series && series.length ? series[series.length - 1][1] : null;
+    }
+
+    function fmtVal(v, isPct) {
+        if (v === null || v === undefined) return '—';
+        if (isPct) return v.toFixed(1) + '%';
+        if (Math.abs(v) >= 1e9) return (v / 1e9).toFixed(2) + 'G';
+        if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+        if (Math.abs(v) >= 1e3) return (v / 1e3).toFixed(1) + 'k';
+        return v.toFixed(2);
+    }
+
+    function pickReadout(series) {
+        // prefer a *_pct series for the headline value; fall back to first
+        const pct = series.find(s => /_pct$/.test(s.label));
+        const chosen = pct || series[0];
+        return {
+            value: lastValue(chosen.data),
+            isPct: /_pct$/.test(chosen.label),
+            label: chosen.label
+        };
+    }
+
     function panelFor(title, canvasId, series) {
         let panel = document.getElementById(canvasId + 'Panel');
         if (panel) panel.remove();
@@ -170,9 +196,15 @@
         panel = document.createElement('div');
         panel.className = 'panel';
         panel.id = canvasId + 'Panel';
-        panel.innerHTML = '<div class="panel-head"><h3>' + title + '</h3></div><div class="chart-container"><canvas id="' + canvasId + '"></canvas></div>';
+        panel.innerHTML = '<div class="panel-head"><h3>' + title + '</h3><span class="panel-value" id="' + canvasId + 'Value"></span></div><div class="chart-container"><canvas id="' + canvasId + '"></canvas></div>';
         document.getElementById('charts').appendChild(panel);
         renderChart(canvasId, title, series);
+        const ro = pickReadout(series);
+        const el = document.getElementById(canvasId + 'Value');
+        if (el && ro.value !== null) {
+            el.textContent = fmtVal(ro.value, ro.isPct);
+            el.title = (ro.label || title) + ' (latest)';
+        }
     }
 
     function renderPanels() {
@@ -189,7 +221,7 @@
         const memKeys = Object.keys(groups.mem);
         const diskKeys = Object.keys(groups.disk);
 
-        panelFor('CPU (%)', 'cpuChart', cpuKeys.map(k => ({ label: metricLabel(k, 'cpu.'), data: groups.cpu[k] })));
+        panelFor('CPU', 'cpuChart', cpuKeys.map(k => ({ label: metricLabel(k, 'cpu.'), data: groups.cpu[k] })));
         panelFor('Load Average', 'loadChart', loadKeys.map(k => ({ label: metricLabel(k, 'cpu.'), data: groups.cpu[k] })));
         panelFor('Memory', 'memChart', memKeys.map(k => ({ label: metricLabel(k, 'mem.'), data: groups.mem[k] })));
         panelFor('Disk', 'diskChart', diskKeys.map(k => ({ label: metricLabel(k, 'disk.'), data: groups.disk[k] })));

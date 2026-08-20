@@ -1,16 +1,10 @@
 {{define "title"}}Compare{{end}}
 {{define "content"}}
-<style>
-    .controls { background: white; padding: 15px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    .controls select, .controls input { padding: 8px 12px; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; }
-    .chart-container { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); height: 400px; }
-    .empty { color: #666; text-align: center; padding: 120px 0; }
-</style>
 <div class="header">
     <h1>Multi-Host Comparison</h1>
 </div>
 <div class="controls">
-    <label>Metric: </label>
+    <label for="metric">Metric</label>
     <select id="metric">
         <option value="cpu.user_pct">CPU User %</option>
         <option value="cpu.system_pct">CPU System %</option>
@@ -19,33 +13,60 @@
         <option value="mem.used_pct">Memory Used %</option>
         <option value="disk.used_pct">Disk Used %</option>
     </select>
-    <label>Hosts: </label>
+    <label for="hosts">Hosts</label>
     <select name="hosts" id="hosts" multiple size="5" style="height: 100px;">
         <option value="">Select hosts...</option>
     </select>
-    <label>Range: </label>
+    <label for="timeRange">Range</label>
     <select name="timeRange" id="timeRange">
         <option value="1h">Last hour</option>
         <option value="6h" selected>Last 6 hours</option>
         <option value="24h">Last 24 hours</option>
         <option value="7d">Last 7 days</option>
     </select>
-    <label>Resolution: </label>
+    <label for="resolution">Resolution</label>
     <select name="resolution" id="resolution">
         <option value="raw">Raw</option>
         <option value="1m" selected>1 minute</option>
         <option value="1h">1 hour</option>
     </select>
-    <button id="refreshBtn" onclick="loadCompare()">Refresh</button>
+    <button class="primary" onclick="loadCompare()">Refresh</button>
 </div>
-<div id="chart" class="chart-container">
-    <canvas id="compareChart"></canvas>
+<div class="panel">
+    <div class="chart-container-lg">
+        <canvas id="compareChart"></canvas>
+    </div>
 </div>
-<script src="/static/chart.min.js"></script>
 <script>
     let chart = null;
-    const colors = ['#0066cc', '#e65100', '#2e7d32', '#c62828', '#6a1b9a', '#00838f', '#f57f17', '#263238'];
     let hosts = [];
+
+    function cssVar(name) {
+        return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    }
+
+    function palette() {
+        return [
+            cssVar('--series-1'), cssVar('--series-2'), cssVar('--series-3'),
+            cssVar('--series-4'), cssVar('--series-5'), cssVar('--series-6'),
+            cssVar('--ok'), cssVar('--warn'), cssVar('--crit')
+        ];
+    }
+
+    function chartOptions() {
+        return {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { display: true, position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } }
+            },
+            scales: {
+                x: { ticks: { color: cssVar('--text-dim'), font: { family: cssVar('--mono') } }, grid: { color: cssVar('--border') } },
+                y: { beginAtZero: false, ticks: { color: cssVar('--text-dim'), font: { family: cssVar('--mono') } }, grid: { color: cssVar('--border') } }
+            }
+        };
+    }
 
     function initHosts() {
         const select = document.getElementById('hosts');
@@ -64,14 +85,15 @@
     }
 
     function updateChart(data) {
-        const canvas = document.getElementById('compareChart');
+        const container = document.querySelector('.chart-container-lg');
         if (chart) { chart.destroy(); chart = null; }
-        if (!data || !data.series || data.series.length === 0 || data.labels.length === 0) {
-            canvas.parentElement.innerHTML = '<div class="empty">No data in range</div>';
+        if (!data || !data.series || data.series.length === 0 || !data.labels || data.labels.length === 0) {
+            container.innerHTML = '<div class="empty">No data in range</div>';
             return;
         }
-        canvas.parentElement.innerHTML = '<canvas id="compareChart"></canvas>';
+        container.innerHTML = '<canvas id="compareChart"></canvas>';
         const ctx = document.getElementById('compareChart').getContext('2d');
+        const colors = palette();
         const datasets = data.series.map((s, i) => ({
             label: s.host, data: s.data.map(d => d[1]), borderColor: colors[i % colors.length],
             fill: false, tension: 0.1, pointRadius: 0
@@ -79,7 +101,7 @@
         chart = new Chart(ctx, {
             type: 'line',
             data: { labels: data.labels, datasets },
-            options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false } }
+            options: chartOptions()
         });
     }
 

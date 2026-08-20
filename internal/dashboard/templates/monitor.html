@@ -1,32 +1,18 @@
 {{define "title"}}Self-Monitoring{{end}}
 {{define "content"}}
-<style>
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
-    .card { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    .metric { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #eee; }
-    .metric:last-child { border-bottom: none; }
-    .metric-label { color: #666; }
-    .metric-value { font-weight: bold; }
-    .host-table { width: 100%; border-collapse: collapse; }
-    .host-table th, .host-table td { padding: 8px; text-align: left; border-bottom: 1px solid #eee; }
-    .status.ok { color: #2e7d32; }
-    .status.warning { color: #e65100; }
-    .status.critical { color: #c62828; }
-    .status.down { color: #616161; }
-</style>
 <div class="header">
     <h1>Self-Monitoring</h1>
 </div>
 <div class="grid">
     <div class="card">
-        <h2>Overall</h2>
-        <div class="metric"><span class="metric-label">Database Size</span><span class="metric-value">{{printf "%.2f" .DBSize}} MB</span></div>
-        <div class="metric"><span class="metric-label">Total Hosts</span><span class="metric-value">{{len .Hosts}}</span></div>
-        <div class="metric"><span class="metric-label">Polling Interval</span><span class="metric-value">30s</span></div>
+        <h2 class="card-title" style="margin:0 0 12px;">Overall</h2>
+        <div class="metric"><span class="metric-label">Database Size</span><span class="metric-value mono">{{printf "%.2f" .DBSize}} MB</span></div>
+        <div class="metric"><span class="metric-label">Total Hosts</span><span class="metric-value mono">{{len .Hosts}}</span></div>
+        <div class="metric"><span class="metric-label">Polling Interval</span><span class="metric-value mono">30s</span></div>
     </div>
     <div class="card">
-        <h2>Host Collector Status</h2>
-        <table class="host-table">
+        <h2 class="card-title" style="margin:0 0 12px;">Host Collector Status</h2>
+        <table class="data-table">
             <thead><tr><th>Host</th><th>Last Collector</th><th>Last Success</th><th>Consecutive Fails</th><th>Last Error</th></tr></thead>
             <tbody>
                 {{range .Hosts}}
@@ -34,9 +20,9 @@
                 {{with index $.Statuses .ID}}
                 <tr>
                     <td>{{$host.Name}}</td>
-                    <td>{{.LastCollector}}</td>
+                    <td class="mono">{{.LastCollector}}</td>
                     <td>{{if .LastSuccess.IsZero}}Never{{else}}{{.LastSuccess.Format "15:04:05"}}{{end}}</td>
-                    <td class="status {{if eq .ConsecutiveFails 0}}ok{{else if lt .ConsecutiveFails 3}}warning{{else}}down{{end}}">{{.ConsecutiveFails}}</td>
+                    <td class="num"><span class="status {{if eq .ConsecutiveFails 0}}ok{{else if lt .ConsecutiveFails 3}}warning{{else}}down{{end}}">{{.ConsecutiveFails}}</span></td>
                     <td>{{.LastError}}</td>
                 </tr>
                 {{else}}

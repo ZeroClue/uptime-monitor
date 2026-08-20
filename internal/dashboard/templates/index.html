@@ -1,23 +1,8 @@
 {{define "title"}}Hosts{{end}}
 {{define "content"}}
-<style>
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 20px; }
-    .card { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-    .card-title { font-size: 1.2em; font-weight: bold; margin: 0; }
-    .status { padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; }
-    .status.ok { background: #e8f5e9; color: #2e7d32; }
-    .status.warning { background: #fff3e0; color: #e65100; }
-    .status.critical { background: #fce4ec; color: #c62828; }
-    .status.down { background: #fafafa; color: #616161; }
-    .meta { font-size: 0.85em; color: #666; }
-    .tags { margin-top: 10px; }
-    .tag { display: inline-block; background: #e3f2fd; color: #1565c0; padding: 2px 8px; border-radius: 12px; font-size: 0.75em; margin-right: 5px; }
-    a { color: #0066cc; text-decoration: none; }
-    a:hover { text-decoration: underline; }
-</style>
 <div class="header">
     <h1>Hosts</h1>
+    <span class="sub">{{len .Hosts}} host(s)</span>
 </div>
 <div class="grid">
     {{range .Hosts}}

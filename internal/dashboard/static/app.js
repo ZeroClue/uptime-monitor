@@ -3,12 +3,16 @@
 
     const THEME_KEY = 'uptime-monitor-theme';
 
+    function cssVar(name) {
+        return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    }
+
     function applyTheme(theme) {
         const root = document.documentElement;
         root.setAttribute('data-theme', theme);
         const meta = document.getElementById('theme-color-meta');
         if (meta) {
-            const bg = getComputedStyle(root).getPropertyValue('--bg').trim();
+            const bg = cssVar('--bg');
             if (bg) meta.setAttribute('content', bg);
         }
         const toggle = document.getElementById('theme-toggle');
@@ -16,6 +20,7 @@
             toggle.textContent = theme === 'dark' ? '☾' : '☀';
             toggle.setAttribute('aria-pressed', String(theme === 'dark'));
         }
+        document.dispatchEvent(new CustomEvent('themechange', { detail: { theme: theme } }));
     }
 
     function currentTheme() {
@@ -25,7 +30,8 @@
     function initTheme() {
         let theme = localStorage.getItem(THEME_KEY);
         if (!theme) {
-            theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+            // default dark per design; OS preference only applies after a manual toggle
+            theme = 'dark';
         }
         applyTheme(theme);
     }
@@ -51,9 +57,22 @@
         });
     }
 
+    // ---- Chart.js theme-aware global defaults ----
+    function chartDefaults() {
+        if (typeof Chart === 'undefined') return;
+        const dim = cssVar('--text-dim');
+        const border = cssVar('--border');
+        Chart.defaults.font.family = cssVar('--mono');
+        Chart.defaults.color = dim;
+        Chart.defaults.borderColor = border;
+        Chart.defaults.plugins.legend.labels.boxWidth = 12;
+        Chart.defaults.plugins.legend.labels.font = { size: 11 };
+    }
+
     document.addEventListener('DOMContentLoaded', function () {
         initTheme();
         initNav();
+        chartDefaults();
         const toggle = document.getElementById('theme-toggle');
         if (toggle) {
             toggle.addEventListener('click', toggleTheme);
@@ -64,5 +83,18 @@
                 }
             });
         }
+        // restyle any existing charts on theme change
+        document.addEventListener('themechange', function () {
+            chartDefaults();
+            if (typeof Chart !== 'undefined') {
+                Object.values(Chart.instances || {}).forEach(function (instance) {
+                    instance.options.scales.x.ticks.color = cssVar('--text-dim');
+                    instance.options.scales.y.ticks.color = cssVar('--text-dim');
+                    instance.options.scales.x.grid.color = cssVar('--border');
+                    instance.options.scales.y.grid.color = cssVar('--border');
+                    instance.update();
+                });
+            }
+        });
     });
 })();
