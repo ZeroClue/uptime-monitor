@@ -163,6 +163,21 @@ func (p *ProcfsCollector) Collect(ctx context.Context, host Host) ([]Sample, err
 		)
 	}
 
+	diskIO, err := p.getDiskIO(ctx, host)
+	if err != nil {
+		p.logger.Debug("no disk i/o data", "error", err)
+	} else {
+		for _, dev := range sortedDiskDevices(diskIO) {
+			d := diskIO[dev]
+			samples = append(samples,
+				Sample{HostID: host.ID, Metric: "diskio." + dev + ".read_bytes", Value: float64(d.ReadBytes), Timestamp: now},
+				Sample{HostID: host.ID, Metric: "diskio." + dev + ".write_bytes", Value: float64(d.WriteBytes), Timestamp: now},
+				Sample{HostID: host.ID, Metric: "diskio." + dev + ".read_ops", Value: float64(d.ReadOps), Timestamp: now},
+				Sample{HostID: host.ID, Metric: "diskio." + dev + ".write_ops", Value: float64(d.WriteOps), Timestamp: now},
+			)
+		}
+	}
+
 	return samples, nil
 }
 
@@ -374,6 +389,62 @@ func sortedCoreIDs(cores map[int]CPUStat) []int {
 
 type DiskInfo struct {
 	Total, Used, Free uint64
+}
+
+type DiskIOStats struct {
+	ReadBytes  uint64
+	WriteBytes uint64
+	ReadOps    uint64
+	WriteOps   uint64
+}
+
+func (p *ProcfsCollector) getDiskIO(ctx context.Context, host Host) (map[string]DiskIOStats, error) {
+	output, err := p.execCommand(ctx, host, "cat /proc/diskstats")
+	if err != nil {
+		return nil, err
+	}
+	return parseDiskStats(output)
+}
+
+func parseDiskStats(output string) (map[string]DiskIOStats, error) {
+	devices := make(map[string]DiskIOStats)
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 14 {
+			continue
+		}
+		name := fields[2]
+		if isVirtualDisk(name) {
+			continue
+		}
+		readOps, _ := strconv.ParseUint(fields[3], 10, 64)
+		sectorsRead, _ := strconv.ParseUint(fields[5], 10, 64)
+		writeOps, _ := strconv.ParseUint(fields[7], 10, 64)
+		sectorsWritten, _ := strconv.ParseUint(fields[9], 10, 64)
+		devices[name] = DiskIOStats{
+			ReadBytes:  sectorsRead * 512,
+			WriteBytes: sectorsWritten * 512,
+			ReadOps:    readOps,
+			WriteOps:   writeOps,
+		}
+	}
+	if len(devices) == 0 {
+		return nil, fmt.Errorf("no disk devices found in /proc/diskstats")
+	}
+	return devices, nil
+}
+
+func isVirtualDisk(name string) bool {
+	return strings.HasPrefix(name, "loop") || strings.HasPrefix(name, "ram") || strings.HasPrefix(name, "zram")
+}
+
+func sortedDiskDevices(devices map[string]DiskIOStats) []string {
+	names := make([]string, 0, len(devices))
+	for name := range devices {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func (p *ProcfsCollector) getDiskInfo(ctx context.Context, host Host) (DiskInfo, error) {
