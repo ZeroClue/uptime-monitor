@@ -92,6 +92,10 @@ func (s *Server) Run(ctx context.Context) {
 	mux.HandleFunc("/api/host/", s.authMiddleware(s.handleAPIHost))
 	mux.HandleFunc("/api/compare", s.authMiddleware(s.handleAPICompare))
 	mux.HandleFunc("/api/alerts", s.authMiddleware(s.handleAPIAlerts))
+	mux.HandleFunc("/api/alert-rules", s.authMiddleware(s.handleAPIAlertRules))
+	mux.HandleFunc("/api/alert-rules/", s.authMiddleware(s.handleAPIAlertRuleByID))
+	mux.HandleFunc("/api/notification-channels", s.authMiddleware(s.handleAPINotificationChannels))
+	mux.HandleFunc("/api/notification-channels/", s.authMiddleware(s.handleAPINotificationChannelByID))
 	mux.HandleFunc("/api/monitor", s.authMiddleware(s.handleAPIMonitor))
 	if s.static != nil {
 		mux.Handle("/static/", s.static)
@@ -740,7 +744,7 @@ func (s *Server) handleAPIAlerts(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				duration = 1 * time.Hour // default 1 hour
 			}
-			if err := s.db.SilenceAlert(r.Context(), parseInt64(alertID), duration); err != nil {
+			if err := s.db.SilenceAlert(r.Context(), mustParseInt64(alertID), duration); err != nil {
 				s.logger.Error("failed to silence alert", "error", err)
 				http.Error(w, "Internal error", http.StatusInternalServerError)
 				return
@@ -749,7 +753,7 @@ func (s *Server) handleAPIAlerts(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if action == "acknowledge" && alertID != "" {
-			if err := s.db.AcknowledgeAlert(r.Context(), parseInt64(alertID)); err != nil {
+			if err := s.db.AcknowledgeAlert(r.Context(), mustParseInt64(alertID)); err != nil {
 				s.logger.Error("failed to acknowledge alert", "error", err)
 				http.Error(w, "Internal error", http.StatusInternalServerError)
 				return
@@ -775,7 +779,7 @@ func (s *Server) handleAPIAlerts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	alerts, err := s.db.GetAlerts(r.Context(), parseInt64(hostID))
+	alerts, err := s.db.GetAlerts(r.Context(), mustParseInt64(hostID))
 	if err != nil {
 		s.logger.Error("failed to get alerts", "error", err)
 		http.Error(w, "Internal error", http.StatusInternalServerError)
@@ -786,10 +790,178 @@ func (s *Server) handleAPIAlerts(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(alerts)
 }
 
-func parseInt64(s string) int64 {
-	var n int64
-	fmt.Sscanf(s, "%d", &n)
+func (s *Server) handleAPIAlertRules(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		rules, err := s.db.GetAlertRules(r.Context())
+		if err != nil {
+			s.logger.Error("failed to get alert rules", "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rules)
+	case http.MethodPost:
+		var rule storage.AlertRule
+		if err := json.NewDecoder(r.Body).Decode(&rule); err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+		id, err := s.db.CreateAlertRule(r.Context(), &rule)
+		if err != nil {
+			s.logger.Error("failed to create alert rule", "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		rule.ID = id
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(rule)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleAPIAlertRuleByID(w http.ResponseWriter, r *http.Request) {
+	idStr := strings.TrimPrefix(r.URL.Path, "/api/alert-rules/")
+	id, err := parseInt64(idStr)
+	if err != nil {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		rule, err := s.db.GetAlertRule(r.Context(), id)
+		if err != nil {
+			s.logger.Error("failed to get alert rule", "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		if rule == nil {
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rule)
+	case http.MethodPut:
+		var rule storage.AlertRule
+		if err := json.NewDecoder(r.Body).Decode(&rule); err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+		rule.ID = id
+		if err := s.db.UpdateAlertRule(r.Context(), &rule); err != nil {
+			s.logger.Error("failed to update alert rule", "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(rule)
+	case http.MethodDelete:
+		if err := s.db.DeleteAlertRule(r.Context(), id); err != nil {
+			s.logger.Error("failed to delete alert rule", "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleAPINotificationChannels(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		channels, err := s.db.GetNotificationChannels(r.Context())
+		if err != nil {
+			s.logger.Error("failed to get notification channels", "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(channels)
+	case http.MethodPost:
+		var channel storage.NotificationChannel
+		if err := json.NewDecoder(r.Body).Decode(&channel); err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+		id, err := s.db.CreateNotificationChannel(r.Context(), &channel)
+		if err != nil {
+			s.logger.Error("failed to create notification channel", "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		channel.ID = id
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(channel)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleAPINotificationChannelByID(w http.ResponseWriter, r *http.Request) {
+	idStr := strings.TrimPrefix(r.URL.Path, "/api/notification-channels/")
+	id, err := parseInt64(idStr)
+	if err != nil {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		channel, err := s.db.GetNotificationChannel(r.Context(), id)
+		if err != nil {
+			s.logger.Error("failed to get notification channel", "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		if channel == nil {
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(channel)
+	case http.MethodPut:
+		var channel storage.NotificationChannel
+		if err := json.NewDecoder(r.Body).Decode(&channel); err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+		channel.ID = id
+		if err := s.db.UpdateNotificationChannel(r.Context(), &channel); err != nil {
+			s.logger.Error("failed to update notification channel", "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(channel)
+	case http.MethodDelete:
+		if err := s.db.DeleteNotificationChannel(r.Context(), id); err != nil {
+			s.logger.Error("failed to delete notification channel", "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func mustParseInt64(s string) int64 {
+	n, err := parseInt64(s)
+	if err != nil {
+		panic("invalid int64: " + s)
+	}
 	return n
+}
+
+func parseInt64(s string) (int64, error) {
+	var n int64
+	_, err := fmt.Sscanf(s, "%d", &n)
+	return n, err
 }
 
 func (s *Server) render(w http.ResponseWriter, name string, data interface{}) {

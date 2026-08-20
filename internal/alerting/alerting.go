@@ -18,47 +18,29 @@ import (
 )
 
 type Engine struct {
-	db         *storage.DB
-	sched      *scheduler.Scheduler
-	logger     *slog.Logger
-	thresholds map[string]ThresholdConfig
-	webhooks   []WebhookConfig
-	stopCh     chan struct{}
-	wg         sync.WaitGroup
-}
-
-type ThresholdConfig struct {
-	Warning  float64
-	Critical float64
-	Below    bool
-}
-
-func exceedsThreshold(value, threshold float64, below bool) bool {
-	if below {
-		return value <= threshold
-	}
-	return value >= threshold
-}
-
-type WebhookConfig struct {
-	Name   string
-	URL    string
-	Type   string // slack, discord, pagerduty
-	Secret string
+	db       *storage.DB
+	sched    *scheduler.Scheduler
+	logger   *slog.Logger
+	rules    []storage.AlertRule
+	channels []storage.NotificationChannel
+	stopCh   chan struct{}
+	wg       sync.WaitGroup
+	mu       sync.RWMutex
 }
 
 func NewEngine(db *storage.DB, sched *scheduler.Scheduler, logger *slog.Logger) *Engine {
 	return &Engine{
-		db:         db,
-		sched:      sched,
-		logger:     logger,
-		thresholds: make(map[string]ThresholdConfig),
-		webhooks:   []WebhookConfig{},
-		stopCh:     make(chan struct{}),
+		db:       db,
+		sched:    sched,
+		logger:   logger,
+		rules:    []storage.AlertRule{},
+		channels: []storage.NotificationChannel{},
+		stopCh:   make(chan struct{}),
 	}
 }
 
-func (e *Engine) LoadThresholds(configPath string) error {
+func (e *Engine) LoadFromConfig(configPath string) error {
+	// Load from YAML and seed DB if empty
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -68,20 +50,92 @@ func (e *Engine) LoadThresholds(configPath string) error {
 	}
 
 	var cfg struct {
-		Thresholds map[string]ThresholdConfig `yaml:"thresholds"`
-		Webhooks   []WebhookConfig            `yaml:"webhooks"`
+		Thresholds map[string]struct {
+			Warning  float64 `yaml:"warning"`
+			Critical float64 `yaml:"critical"`
+			Below    bool    `yaml:"below"`
+		} `yaml:"thresholds"`
+		Webhooks []struct {
+			Name   string `yaml:"name"`
+			URL    string `yaml:"url"`
+			Type   string `yaml:"type"`
+			Secret string `yaml:"secret"`
+		} `yaml:"webhooks"`
 	}
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return err
 	}
-	e.thresholds = cfg.Thresholds
-	e.webhooks = cfg.Webhooks
+
+	// Seed alert rules if DB is empty
+	existingRules, err := e.db.GetAlertRules(context.Background())
+	if err != nil {
+		return err
+	}
+	if len(existingRules) == 0 {
+		for metric, t := range cfg.Thresholds {
+			rule := storage.AlertRule{
+				Metric:   metric,
+				Scope:    "global",
+				Warning:  t.Warning,
+				Critical: t.Critical,
+				Below:    t.Below,
+				Enabled:  true,
+			}
+			if _, err := e.db.CreateAlertRule(context.Background(), &rule); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Seed notification channels if DB is empty
+	existingChannels, err := e.db.GetNotificationChannels(context.Background())
+	if err != nil {
+		return err
+	}
+	if len(existingChannels) == 0 {
+		for _, w := range cfg.Webhooks {
+			config := map[string]string{
+				"url":    w.URL,
+				"secret": w.Secret,
+			}
+			configJSON, _ := json.Marshal(config)
+			channel := storage.NotificationChannel{
+				Name:    w.Name,
+				Type:    w.Type,
+				Config:  string(configJSON),
+				Enabled: true,
+			}
+			if _, err := e.db.CreateNotificationChannel(context.Background(), &channel); err != nil {
+				return err
+			}
+		}
+	}
+
+	return e.refreshFromDB()
+}
+
+func (e *Engine) refreshFromDB() error {
+	rules, err := e.db.GetAlertRules(context.Background())
+	if err != nil {
+		return err
+	}
+	channels, err := e.db.GetEnabledNotificationChannels(context.Background())
+	if err != nil {
+		return err
+	}
+	e.mu.Lock()
+	e.rules = rules
+	e.channels = channels
+	e.mu.Unlock()
 	return nil
 }
 
 func (e *Engine) Run(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
+
+	// Initial refresh
+	e.refreshFromDB()
 
 	for {
 		select {
@@ -90,6 +144,7 @@ func (e *Engine) Run(ctx context.Context) {
 		case <-e.stopCh:
 			return
 		case <-ticker.C:
+			e.refreshFromDB()
 			e.evaluateAlerts(ctx)
 		}
 	}
@@ -105,6 +160,10 @@ func (e *Engine) evaluateAlerts(ctx context.Context) {
 		e.logger.Error("failed to get hosts for alert evaluation", "error", err)
 		return
 	}
+
+	e.mu.RLock()
+	rules := e.rules
+	e.mu.RUnlock()
 
 	for _, h := range hosts {
 		status := e.sched.GetHostStatus(h.ID)
@@ -124,45 +183,49 @@ func (e *Engine) evaluateAlerts(ctx context.Context) {
 		}
 
 		// Metric threshold alerts
-		e.checkMetricThresholds(ctx, h.ID, h.Name)
+		e.checkMetricThresholds(ctx, h.ID, h.Name, rules)
 	}
 }
 
-func (e *Engine) checkMetricThresholds(ctx context.Context, hostID int64, hostName string) {
-	if len(e.thresholds) == 0 {
-		return
-	}
+func (e *Engine) checkMetricThresholds(ctx context.Context, hostID int64, hostName string, rules []storage.AlertRule) {
+	for _, rule := range rules {
+		if !rule.Enabled {
+			continue
+		}
 
-	// Get latest samples for each metric with thresholds
-	for metric, threshold := range e.thresholds {
-		samples, err := e.db.GetSamples(ctx, hostID, metric, time.Now().Add(-5*time.Minute), time.Now(), "1m")
+		// Check if rule applies to this host
+		if rule.Scope == "host" && rule.HostID != nil && *rule.HostID != hostID {
+			continue
+		}
+
+		samples, err := e.db.GetSamples(ctx, hostID, rule.Metric, time.Now().Add(-5*time.Minute), time.Now(), "1m")
 		if err != nil || len(samples) == 0 {
 			continue
 		}
 
 		latest := samples[len(samples)-1].Value
-		below := threshold.Below
+		below := rule.Below
 
-		if exceedsThreshold(latest, threshold.Critical, below) {
+		if exceedsThreshold(latest, rule.Critical, below) {
 			e.fireAlert(ctx, storage.Alert{
 				HostID:    hostID,
 				Type:      "metric_threshold",
-				Metric:    metric,
+				Metric:    rule.Metric,
 				Severity:  "critical",
-				Message:   fmt.Sprintf("%s on %s is %.2f (critical threshold: %.2f)", metric, hostName, latest, threshold.Critical),
+				Message:   fmt.Sprintf("%s on %s is %.2f (critical threshold: %.2f)", rule.Metric, hostName, latest, rule.Critical),
 				Value:     latest,
-				Threshold: threshold.Critical,
+				Threshold: rule.Critical,
 				FiredAt:   time.Now(),
 			})
-		} else if exceedsThreshold(latest, threshold.Warning, below) {
+		} else if exceedsThreshold(latest, rule.Warning, below) {
 			e.fireAlert(ctx, storage.Alert{
 				HostID:    hostID,
 				Type:      "metric_threshold",
-				Metric:    metric,
+				Metric:    rule.Metric,
 				Severity:  "warning",
-				Message:   fmt.Sprintf("%s on %s is %.2f (warning threshold: %.2f)", metric, hostName, latest, threshold.Warning),
+				Message:   fmt.Sprintf("%s on %s is %.2f (warning threshold: %.2f)", rule.Metric, hostName, latest, rule.Warning),
 				Value:     latest,
-				Threshold: threshold.Warning,
+				Threshold: rule.Warning,
 				FiredAt:   time.Now(),
 			})
 		}
@@ -189,23 +252,28 @@ func (e *Engine) fireAlert(ctx context.Context, alert storage.Alert) {
 		return
 	}
 
-	// Send webhook notifications
-	e.sendWebhooks(alert)
+	// Send notifications via enabled channels
+	e.mu.RLock()
+	chans := e.channels
+	e.mu.RUnlock()
+	e.sendNotifications(alert, chans)
 }
 
-func (e *Engine) sendWebhooks(alert storage.Alert) {
-	for _, webhook := range e.webhooks {
-		go func(w WebhookConfig) {
-			payload := e.buildWebhookPayload(alert, w.Type)
-			if err := e.postWebhook(w.URL, payload); err != nil {
-				e.logger.Error("webhook failed", "webhook", w.Name, "error", err)
+func (e *Engine) sendNotifications(alert storage.Alert, channels []storage.NotificationChannel) {
+	for _, ch := range channels {
+		go func(ch storage.NotificationChannel) {
+			var config map[string]string
+			_ = json.Unmarshal([]byte(ch.Config), &config)
+			payload := e.buildPayload(alert, ch.Type, config)
+			if err := e.postWebhook(config["url"], payload); err != nil {
+				e.logger.Error("notification failed", "channel", ch.Name, "type", ch.Type, "error", err)
 			}
-		}(webhook)
+		}(ch)
 	}
 }
 
-func (e *Engine) buildWebhookPayload(alert storage.Alert, webhookType string) []byte {
-	switch webhookType {
+func (e *Engine) buildPayload(alert storage.Alert, channelType string, config map[string]string) []byte {
+	switch channelType {
 	case "slack":
 		color := "#ff0000"
 		if alert.Severity == "warning" {
@@ -257,4 +325,11 @@ func (e *Engine) postWebhook(url string, payload []byte) error {
 func toJSON(v interface{}) string {
 	data, _ := json.Marshal(v)
 	return string(data)
+}
+
+func exceedsThreshold(value, threshold float64, below bool) bool {
+	if below {
+		return value <= threshold
+	}
+	return value >= threshold
 }

@@ -82,8 +82,8 @@ func main() {
 
 	alertEngine := alerting.NewEngine(db, sched, logger)
 	configDir := *configPath
-	if err := alertEngine.LoadThresholds(filepath.Join(configDir, "thresholds.yaml")); err != nil {
-		slog.Warn("failed to load thresholds", "error", err)
+	if err := alertEngine.LoadFromConfig(filepath.Join(configDir, "thresholds.yaml")); err != nil {
+		slog.Warn("failed to load alert config", "error", err)
 	}
 	go alertEngine.Run(ctx)
 

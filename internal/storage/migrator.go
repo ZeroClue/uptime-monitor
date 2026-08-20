@@ -81,6 +81,29 @@ func (db *DB) Migrate() error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_alerts_host_fired ON alerts(host_id, fired_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_alerts_resolved ON alerts(resolved_at)`,
+		`CREATE TABLE IF NOT EXISTS alert_rules (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			metric TEXT NOT NULL,
+			scope TEXT NOT NULL DEFAULT 'global',
+			host_id INTEGER,
+			warning REAL NOT NULL,
+			critical REAL NOT NULL,
+			below BOOLEAN NOT NULL DEFAULT FALSE,
+			enabled BOOLEAN NOT NULL DEFAULT TRUE,
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL,
+			FOREIGN KEY (host_id) REFERENCES hosts(id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_alert_rules_metric_scope ON alert_rules(metric, scope, host_id)`,
+		`CREATE TABLE IF NOT EXISTS notification_channels (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT UNIQUE NOT NULL,
+			type TEXT NOT NULL,
+			config TEXT NOT NULL,
+			enabled BOOLEAN NOT NULL DEFAULT TRUE,
+			created_at INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL
+		)`,
 	}
 
 	for _, q := range queries {

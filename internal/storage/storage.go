@@ -41,14 +41,6 @@ func (db *DB) DBSizeMB() float64 {
 	return float64(size) / (1024 * 1024)
 }
 
-
-
-
-
-
-
-
-
 type Host struct {
 	ID                  int64
 	Name                string
@@ -65,22 +57,6 @@ type Host struct {
 	CollectorPreference string
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 type Alert struct {
 	ID             int64
 	HostID         int64
@@ -96,17 +72,28 @@ type Alert struct {
 	SilencedUntil  *time.Time
 }
 
+type AlertRule struct {
+	ID        int64
+	Metric    string
+	Scope     string // "global" or "host"
+	HostID    *int64
+	Warning   float64
+	Critical  float64
+	Below     bool
+	Enabled   bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
 
-
-
-
-
-
-
-
-
-
-
+type NotificationChannel struct {
+	ID        int64
+	Name      string
+	Type      string // "slack", "discord", "pagerduty", "webhook", "email"
+	Config    string // JSON config
+	Enabled   bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
 
 type Project struct {
 	ID       int64
@@ -115,18 +102,6 @@ type Project struct {
 	TagQuery string
 	HostIDs  []int64
 }
-
-
-
-
-
-
-
-
-
-
-
-
 
 type Sample struct {
 	HostID    int64
