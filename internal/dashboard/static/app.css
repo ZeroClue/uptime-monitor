@@ -430,7 +430,8 @@ button.primary:hover {
     overflow: hidden;
 }
 
-.segmented button {
+.segmented button,
+.seg-btn {
     border: none;
     border-radius: 0;
     border-right: 1px solid var(--border);
@@ -440,19 +441,61 @@ button.primary:hover {
     font-size: 12px;
 }
 
-.segmented button:last-child {
+.segmented button:last-child,
+.seg-btn:last-child {
     border-right: none;
 }
 
-.segmented button:hover {
+.segmented button:hover,
+.seg-btn:hover {
     background: var(--bg-hover);
     color: var(--text);
 }
 
-.segmented button.active {
+.segmented button.active,
+.seg-btn.active {
     background: var(--accent);
     color: var(--bg);
     font-weight: 600;
+}
+
+[hidden] {
+    display: none !important;
+}
+
+/* ---------- host list table ---------- */
+.host-table td:first-child {
+    padding-right: 24px;
+}
+
+.host-table td:first-child .tags {
+    margin-top: 4px;
+}
+
+.host-table td:first-child a {
+    font-weight: 600;
+}
+
+.host-table th {
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+
+.host-table .sort-arrow {
+    display: inline-block;
+    width: 12px;
+    color: var(--accent);
+    font-size: 10px;
+}
+
+.last-updated {
+    color: var(--text-dim);
+    font-size: 12px;
+}
+
+.tile-grid .metric {
+    padding: 4px 0;
 }
 
 /* ---------- alerts ---------- */

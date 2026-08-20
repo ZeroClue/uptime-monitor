@@ -87,6 +87,7 @@ func (s *Server) Run(ctx context.Context) {
 	mux.HandleFunc("/monitor", s.authMiddleware(s.handleMonitor))
 	mux.HandleFunc("/api/", s.authMiddleware(s.handleAPI))
 	mux.HandleFunc("/api/hosts", s.authMiddleware(s.handleAPIHosts))
+	mux.HandleFunc("/api/hosts/status", s.authMiddleware(s.handleAPIHostsStatus))
 	mux.HandleFunc("/api/host/", s.authMiddleware(s.handleAPIHost))
 	mux.HandleFunc("/api/compare", s.authMiddleware(s.handleAPICompare))
 	mux.HandleFunc("/api/alerts", s.authMiddleware(s.handleAPIAlerts))
@@ -200,12 +201,29 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	statuses := s.sched.GetAllHostStatuses()
+	type hostBrief struct {
+		ID   int64    `json:"id"`
+		Name string   `json:"name"`
+		Tags []string `json:"tags"`
+	}
+	briefs := make([]hostBrief, 0, len(hosts))
+	for _, h := range hosts {
+		briefs = append(briefs, hostBrief{ID: h.ID, Name: h.Name, Tags: h.Tags})
+	}
+	hostsJSON, err := json.Marshal(briefs)
+	if err != nil {
+		s.logger.Error("failed to marshal hosts", "error", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
 	data := struct {
-		Hosts    []storage.Host
-		Statuses map[int64]*scheduler.HostStatus
+		Hosts     []storage.Host
+		HostsJSON template.JS
+		Statuses  map[int64]*scheduler.HostStatus
 	}{
-		Hosts:    hosts,
-		Statuses: statuses,
+		Hosts:     hosts,
+		HostsJSON: template.JS(hostsJSON),
+		Statuses:  statuses,
 	}
 	s.render(w, "index.html", data)
 }
@@ -337,6 +355,66 @@ func (s *Server) handleAPIHosts(w http.ResponseWriter, r *http.Request) {
 	result := make([]HostInfo, len(hosts))
 	for i, h := range hosts {
 		result[i] = HostInfo{ID: h.ID, Name: h.Name}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+type HostStatusSummary struct {
+	HostID int64   `json:"host_id"`
+	Name   string  `json:"name"`
+	Status string  `json:"status"`
+	CPU    *float64 `json:"cpu_pct"`
+	Mem    *float64 `json:"mem_pct"`
+	Uptime *float64 `json:"uptime_seconds"`
+}
+
+func (s *Server) handleAPIHostsStatus(w http.ResponseWriter, r *http.Request) {
+	hosts, err := s.db.GetHosts()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	statuses := s.sched.GetAllHostStatuses()
+
+	result := make([]HostStatusSummary, 0, len(hosts))
+	for _, h := range hosts {
+		summary := HostStatusSummary{
+			HostID: h.ID,
+			Name:   h.Name,
+		}
+
+		if st, ok := statuses[h.ID]; ok {
+			switch {
+			case st.ConsecutiveFails == 0:
+				summary.Status = "ok"
+			case st.ConsecutiveFails < 3:
+				summary.Status = "warning"
+			default:
+				summary.Status = "down"
+			}
+		} else {
+			summary.Status = "unknown"
+		}
+
+		ctx := r.Context()
+		if idle, err := s.db.GetLatestSample(ctx, h.ID, "cpu.idle_pct"); err == nil && idle != nil {
+			cpu := 100 - idle.Value
+			summary.CPU = &cpu
+		}
+		used, err1 := s.db.GetLatestSample(ctx, h.ID, "mem.used_bytes")
+		total, err2 := s.db.GetLatestSample(ctx, h.ID, "mem.total_bytes")
+		if err1 == nil && err2 == nil && used != nil && total != nil && total.Value > 0 {
+			mem := used.Value / total.Value * 100
+			summary.Mem = &mem
+		}
+		if up, err := s.db.GetLatestSample(ctx, h.ID, "uptime.seconds"); err == nil && up != nil {
+			summary.Uptime = &up.Value
+		}
+
+		result = append(result, summary)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
