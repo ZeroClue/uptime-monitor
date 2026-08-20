@@ -103,11 +103,25 @@ func (p *ProcfsCollector) Collect(ctx context.Context, host Host) ([]Sample, err
 		{HostID: host.ID, Metric: "mem.swap_total_bytes", Value: float64(memInfo.SwapTotal), Timestamp: now},
 		{HostID: host.ID, Metric: "mem.swap_free_bytes", Value: float64(memInfo.SwapFree), Timestamp: now},
 		{HostID: host.ID, Metric: "mem.swap_used_bytes", Value: float64(swapUsed), Timestamp: now},
-		{HostID: host.ID, Metric: "disk.total_bytes", Value: float64(diskInfo.Total), Timestamp: now},
-		{HostID: host.ID, Metric: "disk.used_bytes", Value: float64(diskInfo.Used), Timestamp: now},
-		{HostID: host.ID, Metric: "disk.free_bytes", Value: float64(diskInfo.Free), Timestamp: now},
-		{HostID: host.ID, Metric: "uptime.seconds", Value: uptime, Timestamp: now},
 	}
+
+	for _, mount := range sortedDiskMounts(diskInfo) {
+		d := diskInfo[mount]
+		samples = append(samples,
+			Sample{HostID: host.ID, Metric: "disk." + sanitizeMount(mount) + ".total_bytes", Value: float64(d.Total), Timestamp: now},
+			Sample{HostID: host.ID, Metric: "disk." + sanitizeMount(mount) + ".used_bytes", Value: float64(d.Used), Timestamp: now},
+			Sample{HostID: host.ID, Metric: "disk." + sanitizeMount(mount) + ".free_bytes", Value: float64(d.Free), Timestamp: now},
+		)
+		if d.InodeTotal > 0 {
+			samples = append(samples, Sample{
+				HostID: host.ID, Metric: "disk." + sanitizeMount(mount) + ".inodes_used_pct",
+				Value:     float64(d.InodeUsed) / float64(d.InodeTotal) * 100,
+				Timestamp: now,
+			})
+		}
+	}
+
+	samples = append(samples, Sample{HostID: host.ID, Metric: "uptime.seconds", Value: uptime, Timestamp: now})
 
 	if pct, ok := swapUsedPct(memInfo.SwapTotal, memInfo.SwapFree); ok {
 		samples = append(samples, Sample{
@@ -404,6 +418,111 @@ type DiskInfo struct {
 	Total, Used, Free uint64
 }
 
+type DiskMountInfo struct {
+	Mount      string
+	Total      uint64
+	Used       uint64
+	Free       uint64
+	InodeTotal uint64
+	InodeUsed  uint64
+	InodeFree  uint64
+}
+
+func (p *ProcfsCollector) getDiskInfo(ctx context.Context, host Host) (map[string]DiskMountInfo, error) {
+	dfOut, err := p.execCommand(ctx, host, "df -B1")
+	if err != nil {
+		return nil, err
+	}
+	dfiOut, _ := p.execCommand(ctx, host, "df -i")
+	mounts, err := parseDiskStatsMultiMount(dfOut)
+	if err != nil {
+		return nil, err
+	}
+	if dfiOut != "" {
+		inodes, err := parseDiskInodes(dfiOut)
+		if err == nil {
+			for mount, info := range inodes {
+				if m, ok := mounts[mount]; ok {
+					m.InodeTotal = info.Total
+					m.InodeUsed = info.Used
+					m.InodeFree = info.Free
+					mounts[mount] = m
+				}
+			}
+		}
+	}
+	return mounts, nil
+}
+
+func parseDiskStatsMultiMount(output string) (map[string]DiskMountInfo, error) {
+	mounts := make(map[string]DiskMountInfo)
+	lines := strings.Split(output, "\n")
+	if len(lines) < 2 {
+		return nil, fmt.Errorf("unexpected df output")
+	}
+	for _, line := range lines[1:] {
+		fields := strings.Fields(line)
+		if len(fields) < 6 {
+			continue
+		}
+		mount := fields[5]
+		total, _ := strconv.ParseUint(fields[1], 10, 64)
+		used, _ := strconv.ParseUint(fields[2], 10, 64)
+		free, _ := strconv.ParseUint(fields[3], 10, 64)
+		mounts[mount] = DiskMountInfo{
+			Mount: mount,
+			Total: total,
+			Used:  used,
+			Free:  free,
+		}
+	}
+	if len(mounts) == 0 {
+		return nil, fmt.Errorf("no mounts found in df output")
+	}
+	return mounts, nil
+}
+
+func parseDiskInodes(output string) (map[string]DiskMountInfo, error) {
+	inodes := make(map[string]DiskMountInfo)
+	lines := strings.Split(output, "\n")
+	if len(lines) < 2 {
+		return inodes, nil
+	}
+	for _, line := range lines[1:] {
+		fields := strings.Fields(line)
+		if len(fields) < 6 {
+			continue
+		}
+		mount := fields[5]
+		total, _ := strconv.ParseUint(fields[1], 10, 64)
+		used, _ := strconv.ParseUint(fields[2], 10, 64)
+		free, _ := strconv.ParseUint(fields[3], 10, 64)
+		inodes[mount] = DiskMountInfo{
+			Mount:      mount,
+			InodeTotal: total,
+			InodeUsed:  used,
+			InodeFree:  free,
+		}
+	}
+	return inodes, nil
+}
+
+func sortedDiskMounts(mounts map[string]DiskMountInfo) []string {
+	names := make([]string, 0, len(mounts))
+	for name := range mounts {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func sanitizeMount(mount string) string {
+	if mount == "/" {
+		return "root"
+	}
+	return strings.TrimPrefix(mount, "/")
+}
+
 type DiskIOStats struct {
 	ReadBytes  uint64
 	WriteBytes uint64
@@ -519,45 +638,6 @@ func parseConnectionStates(output string, proto string) map[string]int {
 		counts["total"]++
 	}
 	return counts
-}
-
-func (p *ProcfsCollector) getDiskInfo(ctx context.Context, host Host) (DiskInfo, error) {
-	sudo := ""
-	if host.Sudo {
-		sudo = "sudo "
-	}
-	output, err := p.execCommand(ctx, host, sudo+"df -B1 /")
-	if err != nil {
-		return DiskInfo{}, err
-	}
-	lines := strings.Split(output, "\n")
-	if len(lines) < 3 {
-		return DiskInfo{}, fmt.Errorf("unexpected df output")
-	}
-
-	// Skip warning lines and header, find the data line
-	var dataLine string
-	for _, line := range lines {
-		fields := strings.Fields(line)
-		if len(fields) >= 4 {
-			// Check if this looks like a data line (first field contains a path)
-			if strings.HasPrefix(fields[0], "/") {
-				dataLine = line
-				break
-			}
-		}
-	}
-	if dataLine == "" {
-		return DiskInfo{}, fmt.Errorf("no data line found in df output")
-	}
-	fields := strings.Fields(dataLine)
-	if len(fields) < 4 {
-		return DiskInfo{}, fmt.Errorf("unexpected df format")
-	}
-	total, _ := strconv.ParseUint(fields[1], 10, 64)
-	used, _ := strconv.ParseUint(fields[2], 10, 64)
-	free, _ := strconv.ParseUint(fields[3], 10, 64)
-	return DiskInfo{Total: total, Used: used, Free: free}, nil
 }
 
 func (p *ProcfsCollector) getUptime(ctx context.Context, host Host) (float64, error) {
