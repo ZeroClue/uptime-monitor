@@ -85,6 +85,7 @@ func (s *Server) Run(ctx context.Context) {
 	mux.HandleFunc("/projects", s.authMiddleware(s.handleProjects))
 	mux.HandleFunc("/alerts", s.authMiddleware(s.handleAlerts))
 	mux.HandleFunc("/alerts/history", s.authMiddleware(s.handleAlertsHistory))
+	mux.HandleFunc("/alerts/config", s.authMiddleware(s.handleAlertsConfig))
 	mux.HandleFunc("/monitor", s.authMiddleware(s.handleMonitor))
 	mux.HandleFunc("/api/", s.authMiddleware(s.handleAPI))
 	mux.HandleFunc("/api/hosts", s.authMiddleware(s.handleAPIHosts))
@@ -323,6 +324,16 @@ func (s *Server) handleAlertsHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, "alerts_history.html", struct{ Alerts []storage.AlertWithHost }{Alerts: alerts})
+}
+
+func (s *Server) handleAlertsConfig(w http.ResponseWriter, r *http.Request) {
+	hosts, err := s.db.GetHosts()
+	if err != nil {
+		s.logger.Error("failed to get hosts for config", "error", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+	s.render(w, "alerts_config.html", struct{ Hosts []storage.Host }{Hosts: hosts})
 }
 
 func (s *Server) handleMonitor(w http.ResponseWriter, r *http.Request) {
