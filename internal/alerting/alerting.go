@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/smtp"
 	"os"
 	"strings"
 	"sync"
@@ -264,9 +265,15 @@ func (e *Engine) sendNotifications(alert storage.Alert, channels []storage.Notif
 		go func(ch storage.NotificationChannel) {
 			var config map[string]string
 			_ = json.Unmarshal([]byte(ch.Config), &config)
-			payload := e.buildPayload(alert, ch.Type, config)
-			if err := e.postWebhook(config["url"], payload); err != nil {
-				e.logger.Error("notification failed", "channel", ch.Name, "type", ch.Type, "error", err)
+			if ch.Type == "email" {
+				if err := e.sendEmail(alert, config); err != nil {
+					e.logger.Error("notification failed", "channel", ch.Name, "type", ch.Type, "error", err)
+				}
+			} else {
+				payload := e.buildPayload(alert, ch.Type, config)
+				if err := e.postWebhook(config["url"], payload); err != nil {
+					e.logger.Error("notification failed", "channel", ch.Name, "type", ch.Type, "error", err)
+				}
 			}
 		}(ch)
 	}
@@ -302,6 +309,39 @@ func (e *Engine) buildPayload(alert storage.Alert, channelType string, config ma
 	default:
 		return []byte(fmt.Sprintf(`{"alert":%s}`, toJSON(alert)))
 	}
+}
+
+func (e *Engine) sendEmail(alert storage.Alert, config map[string]string) error {
+	host := config["smtp_host"]
+	port := config["smtp_port"]
+	username := config["username"]
+	password := config["password"]
+	from := config["from"]
+	to := config["to"]
+	if host == "" || port == "" || username == "" || password == "" || from == "" || to == "" {
+		return fmt.Errorf("missing required email config fields")
+	}
+
+	subject := fmt.Sprintf("[%s] %s", strings.ToUpper(alert.Severity), alert.Message)
+	body := fmt.Sprintf(`%s
+
+Host: %d
+Metric: %s
+Value: %.2f
+Threshold: %.2f
+Fired: %s`,
+		alert.Message,
+		alert.HostID,
+		alert.Metric,
+		alert.Value,
+		alert.Threshold,
+		alert.FiredAt.Format(time.RFC3339))
+
+	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n%s", from, to, subject, body)
+
+	auth := smtp.PlainAuth("", username, password, host)
+	addr := fmt.Sprintf("%s:%s", host, port)
+	return smtp.SendMail(addr, auth, from, []string{to}, []byte(msg))
 }
 
 func (e *Engine) postWebhook(url string, payload []byte) error {
