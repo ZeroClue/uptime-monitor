@@ -3,10 +3,12 @@ package dashboard
 import (
 	"context"
 	"crypto/rand"
+	"embed"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -16,6 +18,9 @@ import (
 	"github.com/ZeroClue/uptime-monitor/internal/storage"
 )
 
+//go:embed templates static
+var embeddedFiles embed.FS
+
 type Server struct {
 	password     string
 	db           *storage.DB
@@ -23,21 +28,50 @@ type Server struct {
 	logger       *slog.Logger
 	server       *http.Server
 	sessions     map[string]time.Time
-	templates    *template.Template
+	templates    map[string]*template.Template
+	static       http.Handler
 	cookieSecure bool
 }
 
 func NewServer(password string, db *storage.DB, sched *scheduler.Scheduler, logger *slog.Logger, cookieSecure bool) *Server {
-	tmpl := template.Must(template.New("").ParseGlob("internal/dashboard/templates/*.html"))
-	return &Server{
+	s := &Server{
 		password:     password,
 		db:           db,
 		sched:        sched,
 		logger:       logger,
 		sessions:     make(map[string]time.Time),
-		templates:    tmpl,
 		cookieSecure: cookieSecure,
 	}
+	s.loadTemplates()
+	staticSub, err := fs.Sub(embeddedFiles, "static")
+	if err != nil {
+		logger.Error("failed to open embedded static dir", "error", err)
+		staticSub = nil
+	}
+	if staticSub != nil {
+		s.static = http.StripPrefix("/static/", http.FileServer(http.FS(staticSub)))
+	}
+	return s
+}
+
+func (s *Server) loadTemplates() {
+	pages := []string{"index", "host", "compare", "projects", "alerts", "monitor"}
+	tmpls := make(map[string]*template.Template, len(pages)+1)
+	for _, p := range pages {
+		t, err := template.ParseFS(embeddedFiles, "templates/base.html", "templates/"+p+".html")
+		if err != nil {
+			s.logger.Error("failed to parse template", "page", p, "error", err)
+			continue
+		}
+		tmpls[p+".html"] = t
+	}
+	t, err := template.ParseFS(embeddedFiles, "templates/login.html")
+	if err != nil {
+		s.logger.Error("failed to parse login template", "error", err)
+	} else {
+		tmpls["login.html"] = t
+	}
+	s.templates = tmpls
 }
 
 func (s *Server) Run(ctx context.Context) {
@@ -56,6 +90,9 @@ func (s *Server) Run(ctx context.Context) {
 	mux.HandleFunc("/api/host/", s.authMiddleware(s.handleAPIHost))
 	mux.HandleFunc("/api/compare", s.authMiddleware(s.handleAPICompare))
 	mux.HandleFunc("/api/alerts", s.authMiddleware(s.handleAPIAlerts))
+	if s.static != nil {
+		mux.Handle("/static/", s.static)
+	}
 
 	s.server = &http.Server{
 		Addr:    ":8080",
@@ -621,8 +658,18 @@ func parseInt64(s string) int64 {
 }
 
 func (s *Server) render(w http.ResponseWriter, name string, data interface{}) {
+	tmpl, ok := s.templates[name]
+	if !ok {
+		s.logger.Error("template not found", "template", name)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := s.templates.ExecuteTemplate(w, name, data); err != nil {
+	entry := "base"
+	if name == "login.html" {
+		entry = "login.html"
+	}
+	if err := tmpl.ExecuteTemplate(w, entry, data); err != nil {
 		s.logger.Error("template render failed", "template", name, "error", err)
 		http.Error(w, "Internal error", http.StatusInternalServerError)
 	}
