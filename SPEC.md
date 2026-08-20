@@ -9,7 +9,7 @@ Operators need a simple, self-hosted monitoring solution that can poll Linux hos
 A Go-based monitor that:
 - Pulls metrics from configured hosts via SSH/Tailscale using a fallback collector chain (psutil → `/proc`+`df` → Tailscale)
 - Stores samples in embedded SQLite with automatic downsampling (1-min, 1-hour aggregates)
-- Serves an htmx + Chart.js dashboard with single-password auth
+- Serves a Chart.js dashboard with single-password auth
 - Groups hosts by tags and explicit projects for operational views
 - Exposes `/healthz` for orchestration and a self-monitoring dashboard page
 
@@ -72,10 +72,9 @@ type Host struct {
 ```
 Config loaded from `/config/hosts.yaml` at startup; reload on container restart.
 
-### Dashboard (ADR-002)
+### Dashboard (ADR-002, ADR-005)
 - **Go `net/http` + `html/template`** — server-rendered base layout
-- **htmx** — partial updates (metric panels, time-range changes) without full reload
-- **Chart.js** — canvas charts for time-series; loaded via CDN or embedded
+- **Chart.js** — canvas charts for time-series; rendered client-side from JSON fetched on load
 - **Routes**:
   - `GET /` — host list with sparklines
   - `GET /host/:id` — host detail with metric panels
@@ -152,8 +151,8 @@ Config loaded from `/config/hosts.yaml` at startup; reload on container restart.
 
 - **Schema evolution**: SQLite migrations via `golang-migrate` embedded in binary
 - **Time-series queries**: use SQLite's `strftime` for bucketing; consider `timescaledb` extension if scale exceeds ~200 hosts
-- **Chart.js data API**: `GET /api/host/:id/metric/:metric?from=&to=&resolution=` returns JSON arrays `[timestamp, value]`; resolution = `raw` | `1m` | `1h`
-- **HTMX fragments**: metric panels returned as partial HTML for seamless time-range switching
+- **Chart.js data API**: `GET /api/host/:id/metrics` and `GET /api/host/:id/metric/:metric` return JSON series (supports `timeRange` and `resolution`); resolution = `raw` | `1m` | `1h`
+- **Client-side rendering**: Chart.js draws charts from JSON fetched once on load (see ADR-0005); htmx no longer serves metric panels
 - **Default thresholds**: codified in config with env overrides; shipped as `thresholds.yaml` in `/config/`
 - **SSH key management**: document `ssh-keygen -t ed25519` workflow; keys mounted read-only
 - **Docker Compose example**: included in repo for one-command deploy

@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Uptime label on host page** — shows "Uptime: Xd Yh Zm" from `uptime.seconds`
+- **Interface picker on host pages** — defaults to `eth0`, hides virtual interfaces (veth/br/docker)
+- **Per-second network rates** — `net.*.rx_bytes`/`tx_bytes` cumulative counters converted to rates (host charts client-side, compare + API server-side via `toRateSeries`)
+- **Lower-bound thresholds** — new `below: true` option alerts when a metric drops *under* the threshold (e.g. `uptime.seconds`); thresholds are upper-bound by default
+- **Alert acknowledge action** — `POST /api/alerts?action=acknowledge&id=` wired to the dashboard button
+- **Single-metric JSON endpoint** — `/api/host/:id/metric/:metric?timeRange=&resolution=` returns one series (derives `used_pct`, converts net counters to rates)
 - **Storage module split into domain stores** — `storage.go` split into 10 focused files:
   - `interfaces.go` — explicit interfaces for HostStore, SampleStore, AlertStore, ProjectStore, Downsampler, Cleanup, Migrator
   - `hoststore.go` — `GetHosts()`, `SeedHosts()`
@@ -19,7 +25,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `migrator.go` — `Migrate()`
   - `util.go` — shared helpers (`parseTags`, `matchesTagQuery`, `resolutionMap`, `HostStatusInfo`)
   - `storage.go` — only `DB` struct, `New()`, types, `Close()`
-
 - **SSHClient adapter extracted from collectors** — new `internal/ssh` package:
   - `SSHClient` interface with `Exec(ctx, target, cmd)` method
   - `sshClient` implementation with configurable `SSHTarget`, `SSHTargetDefaults`
@@ -29,21 +34,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Shared `SSHClient` created in `main.go` and injected into all collectors
   - Backward-compatible `execSSH` wrapper in `collector/ssh.go`
 
-### Changed
-- **Go version pinned to 1.22** in CI, Dockerfile, and `go.mod` (was 1.25.0)
-- **CI simplified** — removed golangci-lint (incompatible with Go 1.25 runner), rely on `go vet` + `go fmt` + tests
-- **Dockerfile updated** to use `golang:1.22-alpine` builder
-
 ### Fixed
+- **Charts not rendering** — host/compare/monitor pages fetched metric keys that no longer existed; canvases now render from the JSON API on DOMContentLoaded
+- **Blank network chart** — `pickDefaultInterface` received the names array instead of the object, returning index `"0"` (no matching interface)
+- **uptime.seconds and cpu.load_* zeroed** — SSH `Warning: Permanently added ... to the list of known hosts.` stderr line was parsed as field[0]; fixed with `-o LogLevel=ERROR` and parsers that scan for the first numeric token
+- **CPU percentages understated** — `guest`/`guest_nice` were added to the total but are already counted within `user`/`nice` on Linux
+- **Alerts page 500** — NULL `acknowledged_at`/`resolved_at`/`silenced_until` scanned into `int64`; now `sql.NullInt64` via shared `scanAlertRow` helper
 - **Test coverage** — removed `-race -coverprofile` flags (Go 1.25 `covdata` format incompatible with runner)
 - **golangci-lint removed** — binary built with Go 1.23 incompatible with GitHub Actions Go 1.25 runner
 - **Docker build** — aligned Go version to 1.22 in Dockerfile
+
+### Changed
+- **Metrics API** — `/api/host/:id/metrics` and `/api/host/:id/metric/:metric` now accept `timeRange` and `resolution` query params; `/api/compare` accepts `metric`, `hosts`, `timeRange`, `resolution`
+- **Dashboard rendering** — Chart.js draws from client-fetched JSON instead of HTMX partial fragments
+- **Go version pinned to 1.22** in CI, Dockerfile, and `go.mod` (was 1.25.0)
+- **CI simplified** — removed golangci-lint (incompatible with Go 1.25 runner), rely on `go vet` + `go fmt` + tests
+- **Dockerfile updated** to use `golang:1.22-alpine` builder
 
 ### Architecture
 - **Collector chain** — PsutilCollector → ProcfsCollector → TailscaleCollector fallback (ADR-0001)
 - **Storage** — 6 focused domain stores with explicit interfaces (HostStore, SampleStore, AlertStore, ProjectStore, Downsampler, Cleanup)
 - **Scheduler** — background downsampling (minute) and cleanup (daily) tickers
-- **Dashboard** — HTMX metric panel fragments at `/api/host/:id/metric/:metric`
+- **Dashboard** — Chart.js client-side charts fed by the `/api/host/:id/metrics` and `/api/host/:id/metric/:metric` JSON endpoints
 
 ## [0.1.0] - 2026-08-15
 

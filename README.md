@@ -1,6 +1,6 @@
 # Uptime & System Status Monitor
 
-A self-hosted, single-binary monitoring solution that polls Linux hosts over SSH or Tailscale, collects system metrics, stores them in embedded SQLite, and serves a clean htmx + Chart.js dashboard.
+A self-hosted, single-binary monitoring solution that polls Linux hosts over SSH or Tailscale, collects system metrics, stores them in embedded SQLite, and serves a Chart.js dashboard.
 
 ## Quick Start
 
@@ -120,6 +120,10 @@ thresholds:
   disk.*.used_pct:
     warning: 85
     critical: 95
+  uptime.seconds:
+    warning: 300    # Alert if uptime < 5 min (recent reboot)
+    critical: 60    # Alert if uptime < 1 min
+    below: true
 
 webhooks:
   - name: slack-alerts
@@ -445,9 +449,10 @@ hosts:
 | Endpoint | Description |
 |----------|-------------|
 | `GET /api/hosts` | List all hosts (JSON) |
-| `GET /api/host/:id/metric/:metric` | HTMX fragment for single metric chart |
-| `GET /api/host/:id/metrics` | All metrics for a host (JSON) |
-| `GET /api/compare` | Multi-host comparison data |
+| `GET /api/host/:id/metrics?timeRange=&resolution=` | All metrics for a host (JSON) |
+| `GET /api/host/:id/metric/:metric?timeRange=&resolution=` | Single metric series (JSON; `mem.used_pct`/`disk.used_pct` derived, net byte counters converted to rates) |
+| `GET /api/compare?metric=&hosts=&timeRange=&resolution=` | Multi-host comparison data |
+| `GET /api/alerts` | List alerts; `POST ?action=acknowledge&id=` or `?action=silence&id=&duration=` |
 | `GET /api/projects` | Project list with health status |
 
 ## Development
@@ -517,8 +522,9 @@ Split monolithic `storage.go` (564 lines) into 10 focused files with explicit in
 
 ### Dashboard (`internal/dashboard`)
 
-- HTMX partial fragments for metric panels at `/api/host/:id/metric/:metric`
-- Chart.js rendered in server-rendered HTML fragments
+- Chart.js rendered client-side from JSON fetched from `/api/host/:id/metrics` and `/api/host/:id/metric/:metric`
+- Interface picker on host pages defaults to `eth0` and hides virtual interfaces (veth/br/docker)
+- Network byte counters shown as per-second rates (converted server-side)
 - Session-based auth with configurable `Secure` cookie flag
 
 ## Retention Policy
@@ -532,7 +538,7 @@ Split monolithic `storage.go` (564 lines) into 10 focused files with explicit in
 ## Alerting
 
 - **Collection failure**: 3 consecutive failed polls → host DOWN
-- **Metric thresholds**: Configurable warning/critical per metric (supports wildcards like `disk.*.used_pct`)
+- **Metric thresholds**: Configurable warning/critical per metric (supports wildcards like `disk.*.used_pct`). Thresholds are upper-bound by default; add `below: true` to alert when a metric drops *under* a value (e.g. `uptime.seconds`)
 - **Notifications**: Stdout + optional webhooks (Slack, Discord, PagerDuty)
 - **Acknowledgment**: Dashboard button to acknowledge/silence alerts
 

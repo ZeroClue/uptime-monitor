@@ -165,7 +165,7 @@ docker pull ghcr.io/zeroclue/uptime-monitor:latest
          │
          ▼
 ┌─────────────────┐
-│    Dashboard    │  ← htmx + Chart.js
+│    Dashboard    │  ← Chart.js
 │  (Go templates) │    Single-password auth
 └─────────────────┘
 ```
