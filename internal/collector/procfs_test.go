@@ -10,8 +10,9 @@ func TestParseLoadAvg_WithWarningLine(t *testing.T) {
 		output string
 		want   LoadAvg
 	}{
-		{"clean", "0.55 0.55 0.55 1/559 2388261", LoadAvg{0.55, 0.55, 0.55}},
-		{"ssh-warning-prefix", "Warning: Permanently added 'x' to the list of known hosts.\n0.55 0.42 0.38 1/559 1", LoadAvg{0.55, 0.42, 0.38}},
+		{"clean", "0.55 0.55 0.55 1/559 2388261", LoadAvg{Load1: 0.55, Load5: 0.55, Load15: 0.55, Running: 1, Total: 559, LastPID: 2388261}},
+		{"ssh-warning-prefix", "Warning: Permanently added 'x' to the list of known hosts.\n0.55 0.42 0.38 1/559 1", LoadAvg{Load1: 0.55, Load5: 0.42, Load15: 0.38, Running: 1, Total: 559, LastPID: 1}},
+		{"no-counts", "0.55 0.42 0.38", LoadAvg{Load1: 0.55, Load5: 0.42, Load15: 0.38}},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -67,5 +68,29 @@ func TestParseCPUStat_ReadsFields(t *testing.T) {
 func TestParseCPUStat_NoCpuLine(t *testing.T) {
 	if _, err := parseCPUStat("nothing here\n"); err == nil {
 		t.Fatal("expected error for missing cpu line")
+	}
+}
+
+func TestParseMemInfo_SwapFields(t *testing.T) {
+	output := "MemTotal:       16384000 kB\nMemFree:         1024000 kB\nMemAvailable:     8192000 kB\nSwapTotal:       2097152 kB\nSwapFree:        1048576 kB\n"
+	info, err := parseMemInfo(output)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.SwapTotal != 2097152*1024 {
+		t.Errorf("SwapTotal = %d, want %d", info.SwapTotal, 2097152*1024)
+	}
+	if info.SwapFree != 1048576*1024 {
+		t.Errorf("SwapFree = %d, want %d", info.SwapFree, 1048576*1024)
+	}
+}
+
+func TestParseMemInfo_MissingSwap(t *testing.T) {
+	info, err := parseMemInfo("MemTotal:       1000 kB\n")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.SwapTotal != 0 || info.SwapFree != 0 {
+		t.Errorf("expected zero swap fields, got %+v", info)
 	}
 }

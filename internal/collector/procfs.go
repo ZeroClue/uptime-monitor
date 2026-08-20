@@ -88,15 +88,27 @@ func (p *ProcfsCollector) Collect(ctx context.Context, host Host) ([]Sample, err
 		{HostID: host.ID, Metric: "cpu.load_1m", Value: loadAvg.Load1, Timestamp: now, Collector: "procfs"},
 		{HostID: host.ID, Metric: "cpu.load_5m", Value: loadAvg.Load5, Timestamp: now},
 		{HostID: host.ID, Metric: "cpu.load_15m", Value: loadAvg.Load15, Timestamp: now},
+		{HostID: host.ID, Metric: "system.process_count", Value: float64(loadAvg.Total), Timestamp: now},
 		{HostID: host.ID, Metric: "mem.total_bytes", Value: float64(memInfo.Total), Timestamp: now},
 		{HostID: host.ID, Metric: "mem.free_bytes", Value: float64(memInfo.Free), Timestamp: now},
 		{HostID: host.ID, Metric: "mem.available_bytes", Value: float64(memInfo.Available), Timestamp: now},
 		{HostID: host.ID, Metric: "mem.used_bytes", Value: float64(memInfo.Total - memInfo.Available), Timestamp: now},
 		{HostID: host.ID, Metric: "mem.cached_bytes", Value: float64(memInfo.Cached), Timestamp: now},
+		{HostID: host.ID, Metric: "mem.swap_total_bytes", Value: float64(memInfo.SwapTotal), Timestamp: now},
+		{HostID: host.ID, Metric: "mem.swap_free_bytes", Value: float64(memInfo.SwapFree), Timestamp: now},
+		{HostID: host.ID, Metric: "mem.swap_used_bytes", Value: float64(memInfo.SwapTotal - memInfo.SwapFree), Timestamp: now},
 		{HostID: host.ID, Metric: "disk.total_bytes", Value: float64(diskInfo.Total), Timestamp: now},
 		{HostID: host.ID, Metric: "disk.used_bytes", Value: float64(diskInfo.Used), Timestamp: now},
 		{HostID: host.ID, Metric: "disk.free_bytes", Value: float64(diskInfo.Free), Timestamp: now},
 		{HostID: host.ID, Metric: "uptime.seconds", Value: uptime, Timestamp: now},
+	}
+
+	if memInfo.SwapTotal > 0 {
+		samples = append(samples, Sample{
+			HostID: host.ID, Metric: "mem.swap_used_pct",
+			Value:     float64(memInfo.SwapTotal-memInfo.SwapFree) / float64(memInfo.SwapTotal) * 100,
+			Timestamp: now,
+		})
 	}
 
 	if cpuStat != nil {
@@ -126,6 +138,8 @@ func (p *ProcfsCollector) Collect(ctx context.Context, host Host) ([]Sample, err
 
 type LoadAvg struct {
 	Load1, Load5, Load15 float64
+	Running, Total       int
+	LastPID              int64
 }
 
 func (p *ProcfsCollector) getLoadAvg(ctx context.Context, host Host) (LoadAvg, error) {
@@ -142,12 +156,14 @@ func parseLoadAvg(output string) (LoadAvg, error) {
 		return LoadAvg{}, fmt.Errorf("unexpected loadavg output: %s", output)
 	}
 	nums := make([]float64, 0, 3)
-	for _, f := range fields {
+	lastIdx := 0
+	for i, f := range fields {
 		v, err := strconv.ParseFloat(f, 64)
 		if err != nil {
 			continue
 		}
 		nums = append(nums, v)
+		lastIdx = i
 		if len(nums) == 3 {
 			break
 		}
@@ -155,7 +171,17 @@ func parseLoadAvg(output string) (LoadAvg, error) {
 	if len(nums) < 3 {
 		return LoadAvg{}, fmt.Errorf("unexpected loadavg output: %s", output)
 	}
-	return LoadAvg{Load1: nums[0], Load5: nums[1], Load15: nums[2]}, nil
+	la := LoadAvg{Load1: nums[0], Load5: nums[1], Load15: nums[2]}
+	if lastIdx+1 < len(fields) {
+		if parts := strings.Split(fields[lastIdx+1], "/"); len(parts) == 2 {
+			la.Running, _ = strconv.Atoi(parts[0])
+			la.Total, _ = strconv.Atoi(parts[1])
+		}
+	}
+	if lastIdx+2 < len(fields) {
+		la.LastPID, _ = strconv.ParseInt(fields[lastIdx+2], 10, 64)
+	}
+	return la, nil
 }
 
 type MemInfo struct {
@@ -163,6 +189,8 @@ type MemInfo struct {
 	Free      uint64
 	Available uint64
 	Cached    uint64
+	SwapTotal uint64
+	SwapFree  uint64
 }
 
 func (p *ProcfsCollector) getMemInfo(ctx context.Context, host Host) (MemInfo, error) {
@@ -170,6 +198,10 @@ func (p *ProcfsCollector) getMemInfo(ctx context.Context, host Host) (MemInfo, e
 	if err != nil {
 		return MemInfo{}, err
 	}
+	return parseMemInfo(output)
+}
+
+func parseMemInfo(output string) (MemInfo, error) {
 	info := MemInfo{}
 	re := regexp.MustCompile(`(\w+):\s+(\d+)\s+kB`)
 	for _, match := range re.FindAllStringSubmatch(output, -1) {
@@ -183,6 +215,10 @@ func (p *ProcfsCollector) getMemInfo(ctx context.Context, host Host) (MemInfo, e
 			info.Available = val * 1024
 		case "Cached":
 			info.Cached = val * 1024
+		case "SwapTotal":
+			info.SwapTotal = val * 1024
+		case "SwapFree":
+			info.SwapFree = val * 1024
 		}
 	}
 	return info, nil
