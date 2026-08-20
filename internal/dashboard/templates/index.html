@@ -12,6 +12,8 @@
     <span class="last-updated mono" id="lastUpdated">—</span>
 </div>
 
+<div class="tag-filter" id="tagFilter" hidden></div>
+
 <table class="data-table host-table" id="hostTable">
     <thead>
         <tr>
@@ -36,6 +38,7 @@
     let sortKey = 'name';
     let sortDir = 1;
     let refreshTimer = null;
+    let tagFilter = new Set();
 
     function statusInfo(id) {
         const st = summaries[id] || {};
@@ -72,12 +75,21 @@
             mem: sum.mem_pct,
             uptime: sum.uptime_seconds,
             tagsHtml: tags,
+            tags: host.tags || [],
             id: host.id
         };
     }
 
+    function hostMatchesFilter(row) {
+        if (tagFilter.size === 0) return true;
+        for (const tag of tagFilter) {
+            if (!row.tags.includes(tag)) return false;
+        }
+        return true;
+    }
+
     function renderRows() {
-        const rows = HOSTS.map(rowFor);
+        const rows = HOSTS.map(rowFor).filter(hostMatchesFilter);
         const dir = sortDir;
         rows.sort((a, b) => {
             let av = a[sortKey], bv = b[sortKey];
@@ -124,7 +136,10 @@
         document.getElementById('hostTable').hidden = view !== 'table';
         document.getElementById('hostTiles').hidden = view !== 'tiles';
         try { localStorage.setItem(VIEW_KEY, view); } catch (e) {}
-        history.replaceState(null, '', view === 'tiles' ? '/?view=tiles' : '/');
+        const params = new URLSearchParams();
+        if (view === 'tiles') params.set('view', 'tiles');
+        if (tagFilter.size > 0) params.set('tags', Array.from(tagFilter).join(','));
+        history.replaceState(null, '', '/?' + params.toString());
     }
 
     function setView(v) {
@@ -135,6 +150,39 @@
         if (sortKey === key) { sortDir = -sortDir; }
         else { sortKey = key; sortDir = 1; }
         renderRows();
+    }
+
+    function sortBy(key) {
+        if (sortKey === key) { sortDir = -sortDir; }
+        else { sortKey = key; sortDir = 1; }
+        renderRows();
+    }
+
+    function buildTagFilter() {
+        const allTags = new Set();
+        HOSTS.forEach(h => (h.tags || []).forEach(t => allTags.add(t)));
+        const container = document.getElementById('tagFilter');
+        if (allTags.size === 0) {
+            container.hidden = true;
+            return;
+        }
+        container.hidden = false;
+        const tags = Array.from(allTags).sort();
+        const params = new URLSearchParams(window.location.search);
+        const urlTags = new Set((params.get('tags') || '').split(',').filter(Boolean));
+        container.innerHTML = tags.map(tag => {
+            const active = urlTags.has(tag) ? ' active' : '';
+            return '<span class="tag-filter-chip' + active + '" data-tag="' + tag + '">' + tag + '</span>';
+        }).join(' ');
+        container.querySelectorAll('.tag-filter-chip').forEach(chip => {
+            chip.onclick = function () {
+                const t = this.getAttribute('data-tag');
+                if (tagFilter.has(t)) tagFilter.delete(t);
+                else tagFilter.add(t);
+                applyView(view);
+                renderRows();
+            };
+        });
     }
 
     function fetchSummary() {
@@ -162,9 +210,13 @@
     }
 
     document.addEventListener('DOMContentLoaded', function () {
-        let v = new URLSearchParams(window.location.search).get('view');
+        const params = new URLSearchParams(window.location.search);
+        const urlTags = (params.get('tags') || '').split(',').filter(Boolean);
+        urlTags.forEach(t => tagFilter.add(t));
+        let v = params.get('view');
         if (!v) { try { v = localStorage.getItem(VIEW_KEY); } catch (e) {} }
         applyView(v || 'table');
+        buildTagFilter();
         fetchSummary();
         startRefresh();
     });
