@@ -61,7 +61,7 @@ func buildPsutilCommand(host Host) string {
 	if host.Sudo {
 		sudo = "sudo "
 	}
-	return fmt.Sprintf("%spython3 -c \"import psutil, json, time; cpu = psutil.cpu_times_percent(interval=0.1); cores = psutil.cpu_times_percent(interval=None, percpu=True); mem = psutil.virtual_memory(); swap = psutil.swap_memory(); disk = psutil.disk_usage('/'); net = psutil.net_io_counters(pernic=True); load = psutil.getloadavg(); procs = len(psutil.pids()); uptime = psutil.boot_time(); print(json.dumps({'cpu': {'user': cpu.user, 'system': cpu.system, 'idle': cpu.idle, 'iowait': cpu.iowait, 'load1': load[0], 'load5': load[1], 'load15': load[2]}, 'cores': {str(i): {'user': c.user, 'system': c.system, 'idle': c.idle, 'iowait': c.iowait} for i, c in enumerate(cores)}, 'mem': {'total': mem.total, 'used': mem.used, 'free': mem.free, 'available': mem.available, 'cached': mem.cached, 'swap_total': swap.total, 'swap_free': swap.free, 'swap_used': swap.used}, 'disk': {'total': disk.total, 'used': disk.used, 'free': disk.free}, 'net': {k: {'rx_bytes': v.bytes_recv, 'tx_bytes': v.bytes_sent, 'rx_packets': v.packets_recv, 'tx_packets': v.packets_sent, 'errors': v.errin + v.errout} for k, v in net.items()}, 'uptime': int(time.time() - uptime), 'process_count': procs}))\"", sudo)
+	return fmt.Sprintf("%spython3 -c \"import psutil, json, time; cpu = psutil.cpu_times_percent(interval=0.1); cores = psutil.cpu_times_percent(interval=0.1, percpu=True); mem = psutil.virtual_memory(); swap = psutil.swap_memory(); disk = psutil.disk_usage('/'); net = psutil.net_io_counters(pernic=True); load = psutil.getloadavg(); procs = len(psutil.pids()); uptime = psutil.boot_time(); print(json.dumps({'cpu': {'user': cpu.user, 'system': cpu.system, 'idle': cpu.idle, 'iowait': cpu.iowait, 'load1': load[0], 'load5': load[1], 'load15': load[2]}, 'cores': {str(i): {'user': c.user, 'system': c.system, 'idle': c.idle, 'iowait': c.iowait} for i, c in enumerate(cores)}, 'mem': {'total': mem.total, 'used': mem.used, 'free': mem.free, 'available': mem.available, 'cached': mem.cached, 'swap_total': swap.total, 'swap_free': swap.free, 'swap_used': swap.used}, 'disk': {'total': disk.total, 'used': disk.used, 'free': disk.free}, 'net': {k: {'rx_bytes': v.bytes_recv, 'tx_bytes': v.bytes_sent, 'rx_packets': v.packets_recv, 'tx_packets': v.packets_sent, 'errors': v.errin + v.errout} for k, v in net.items()}, 'uptime': int(time.time() - uptime), 'process_count': procs}))\"", sudo)
 }
 
 type PsutilOutput struct {
@@ -161,12 +161,7 @@ func (p *PsutilCollector) convertToSamples(hostID int64, data PsutilOutput) []Sa
 
 	for _, core := range sortedCoreNames(data.Cores) {
 		c := data.Cores[core]
-		samples = append(samples,
-			Sample{HostID: hostID, Metric: "cpu.core." + core + ".user_pct", Value: c.User, Timestamp: now},
-			Sample{HostID: hostID, Metric: "cpu.core." + core + ".system_pct", Value: c.System, Timestamp: now},
-			Sample{HostID: hostID, Metric: "cpu.core." + core + ".idle_pct", Value: c.Idle, Timestamp: now},
-			Sample{HostID: hostID, Metric: "cpu.core." + core + ".iowait_pct", Value: c.Iowait, Timestamp: now},
-		)
+		samples = appendCPUSampleGroup(samples, hostID, "cpu.core."+core, c.User, c.System, c.Idle, c.Iowait, now)
 	}
 
 	return samples

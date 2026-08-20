@@ -64,7 +64,7 @@ func (p *ProcfsCollector) Collect(ctx context.Context, host Host) ([]Sample, err
 		return nil, fmt.Errorf("failed to get meminfo: %w", err)
 	}
 
-	cpuStatOut, err := p.getCPUStat(ctx, host)
+	cpuStatOut, err := p.getCPUStatRaw(ctx, host)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cpu stat: %w", err)
 	}
@@ -126,31 +126,30 @@ func (p *ProcfsCollector) Collect(ctx context.Context, host Host) ([]Sample, err
 		})
 	}
 
-	if cpuStat != nil {
-		total := cpuStat.User + cpuStat.System + cpuStat.Idle + cpuStat.Iowait + cpuStat.Nice + cpuStat.Softirq + cpuStat.Steal
-		if total > 0 {
-			samples = append(samples,
-				Sample{HostID: host.ID, Metric: "cpu.user_pct", Value: float64(cpuStat.User) / float64(total) * 100, Timestamp: now},
-				Sample{HostID: host.ID, Metric: "cpu.system_pct", Value: float64(cpuStat.System) / float64(total) * 100, Timestamp: now},
-				Sample{HostID: host.ID, Metric: "cpu.idle_pct", Value: float64(cpuStat.Idle) / float64(total) * 100, Timestamp: now},
-				Sample{HostID: host.ID, Metric: "cpu.iowait_pct", Value: float64(cpuStat.Iowait) / float64(total) * 100, Timestamp: now},
-			)
-		}
+	total := cpuStat.User + cpuStat.System + cpuStat.Idle + cpuStat.Iowait + cpuStat.Nice + cpuStat.Softirq + cpuStat.Steal
+	if total > 0 {
+		samples = appendCPUSampleGroup(samples, host.ID, "cpu",
+			float64(cpuStat.User)/float64(total)*100,
+			float64(cpuStat.System)/float64(total)*100,
+			float64(cpuStat.Idle)/float64(total)*100,
+			float64(cpuStat.Iowait)/float64(total)*100, now)
 	}
 
-	if perCore, err := parsePerCoreCPU(cpuStatOut); err == nil {
+	perCore, perCoreErr := parsePerCoreCPU(cpuStatOut)
+	if perCoreErr != nil {
+		p.logger.Debug("no per-core cpu data", "error", perCoreErr)
+	} else {
 		for _, core := range sortedCoreIDs(perCore) {
 			stat := perCore[core]
 			total := stat.User + stat.System + stat.Idle + stat.Iowait + stat.Nice + stat.Softirq + stat.Steal
 			if total == 0 {
 				continue
 			}
-			samples = append(samples,
-				Sample{HostID: host.ID, Metric: fmt.Sprintf("cpu.core.%d.user_pct", core), Value: float64(stat.User) / float64(total) * 100, Timestamp: now},
-				Sample{HostID: host.ID, Metric: fmt.Sprintf("cpu.core.%d.system_pct", core), Value: float64(stat.System) / float64(total) * 100, Timestamp: now},
-				Sample{HostID: host.ID, Metric: fmt.Sprintf("cpu.core.%d.idle_pct", core), Value: float64(stat.Idle) / float64(total) * 100, Timestamp: now},
-				Sample{HostID: host.ID, Metric: fmt.Sprintf("cpu.core.%d.iowait_pct", core), Value: float64(stat.Iowait) / float64(total) * 100, Timestamp: now},
-			)
+			samples = appendCPUSampleGroup(samples, host.ID, fmt.Sprintf("cpu.core.%d", core),
+				float64(stat.User)/float64(total)*100,
+				float64(stat.System)/float64(total)*100,
+				float64(stat.Idle)/float64(total)*100,
+				float64(stat.Iowait)/float64(total)*100, now)
 		}
 	}
 
@@ -281,7 +280,7 @@ type CPUStat struct {
 	GuestNice uint64
 }
 
-func (p *ProcfsCollector) getCPUStat(ctx context.Context, host Host) (string, error) {
+func (p *ProcfsCollector) getCPUStatRaw(ctx context.Context, host Host) (string, error) {
 	output, err := p.execCommand(ctx, host, "cat /proc/stat")
 	if err != nil {
 		return "", err

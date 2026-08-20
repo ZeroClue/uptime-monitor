@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Swap + process count metrics** — collectors now emit `mem.swap_total_bytes`, `mem.swap_free_bytes`, `mem.swap_used_bytes`, derived `mem.swap_used_pct` (guarded on no-swap hosts), and `system.process_count` (procfs counts `/proc` PIDs, psutil uses `psutil.pids()`). Swap metrics appear in the host detail Memory panel via auto-discovery.
+- **Per-core CPU metrics** — collectors emit `cpu.core.N.user_pct`, `system_pct`, `idle_pct`, `iowait_pct` per core; host detail gains a "CPU Cores" panel with an all-cores overlay or per-core selector. Per-core series are excluded from the aggregate CPU panel.
 
 ## [0.3.0] - 2026-08-20
 
