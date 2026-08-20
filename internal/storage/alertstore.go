@@ -25,7 +25,8 @@ func (db *DB) GetActiveAlert(ctx context.Context, hostID int64, alertType, metri
 		ORDER BY fired_at DESC LIMIT 1`
 	row := db.QueryRowContext(ctx, query, hostID, alertType, metric)
 	var a Alert
-	var firedAt, ackedAt, resolvedAt, silencedAt int64
+	var firedAt int64
+	var ackedAt, resolvedAt, silencedAt sql.NullInt64
 	err := row.Scan(&a.ID, &a.HostID, &a.Type, &a.Metric, &a.Severity, &a.Message, &a.Value, &a.Threshold, &firedAt, &ackedAt, &resolvedAt, &silencedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -34,16 +35,16 @@ func (db *DB) GetActiveAlert(ctx context.Context, hostID int64, alertType, metri
 		return nil, err
 	}
 	a.FiredAt = time.Unix(firedAt, 0)
-	if ackedAt > 0 {
-		t := time.Unix(ackedAt, 0)
+	if ackedAt.Valid {
+		t := time.Unix(ackedAt.Int64, 0)
 		a.AcknowledgedAt = &t
 	}
-	if resolvedAt > 0 {
-		t := time.Unix(resolvedAt, 0)
+	if resolvedAt.Valid {
+		t := time.Unix(resolvedAt.Int64, 0)
 		a.ResolvedAt = &t
 	}
-	if silencedAt > 0 {
-		t := time.Unix(silencedAt, 0)
+	if silencedAt.Valid {
+		t := time.Unix(silencedAt.Int64, 0)
 		a.SilencedUntil = &t
 	}
 	return &a, nil
@@ -84,21 +85,63 @@ func (db *DB) GetAlerts(ctx context.Context, hostID int64) ([]Alert, error) {
 	var alerts []Alert
 	for rows.Next() {
 		var a Alert
-		var firedAt, ackedAt, resolvedAt, silencedAt int64
+		var firedAt int64
+		var ackedAt, resolvedAt, silencedAt sql.NullInt64
 		if err := rows.Scan(&a.ID, &a.HostID, &a.Type, &a.Metric, &a.Severity, &a.Message, &a.Value, &a.Threshold, &firedAt, &ackedAt, &resolvedAt, &silencedAt); err != nil {
 			return nil, err
 		}
 		a.FiredAt = time.Unix(firedAt, 0)
-		if ackedAt > 0 {
-			t := time.Unix(ackedAt, 0)
+		if ackedAt.Valid {
+			t := time.Unix(ackedAt.Int64, 0)
 			a.AcknowledgedAt = &t
 		}
-		if resolvedAt > 0 {
-			t := time.Unix(resolvedAt, 0)
+		if resolvedAt.Valid {
+			t := time.Unix(resolvedAt.Int64, 0)
 			a.ResolvedAt = &t
 		}
-		if silencedAt > 0 {
-			t := time.Unix(silencedAt, 0)
+		if silencedAt.Valid {
+			t := time.Unix(silencedAt.Int64, 0)
+			a.SilencedUntil = &t
+		}
+		alerts = append(alerts, a)
+	}
+	return alerts, nil
+}
+
+type AlertWithHost struct {
+	Alert
+	HostName string
+}
+
+func (db *DB) GetAllAlerts(ctx context.Context) ([]AlertWithHost, error) {
+	query := `SELECT a.id, a.host_id, a.type, a.metric, a.severity, a.message, a.value, a.threshold, a.fired_at, a.acknowledged_at, a.resolved_at, a.silenced_until, COALESCE(h.name, '')
+		FROM alerts a LEFT JOIN hosts h ON h.id = a.host_id
+		ORDER BY a.fired_at DESC`
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var alerts []AlertWithHost
+	for rows.Next() {
+		var a AlertWithHost
+		var firedAt int64
+		var ackedAt, resolvedAt, silencedAt sql.NullInt64
+		if err := rows.Scan(&a.ID, &a.HostID, &a.Type, &a.Metric, &a.Severity, &a.Message, &a.Value, &a.Threshold, &firedAt, &ackedAt, &resolvedAt, &silencedAt, &a.HostName); err != nil {
+			return nil, err
+		}
+		a.FiredAt = time.Unix(firedAt, 0)
+		if ackedAt.Valid {
+			t := time.Unix(ackedAt.Int64, 0)
+			a.AcknowledgedAt = &t
+		}
+		if resolvedAt.Valid {
+			t := time.Unix(resolvedAt.Int64, 0)
+			a.ResolvedAt = &t
+		}
+		if silencedAt.Valid {
+			t := time.Unix(silencedAt.Int64, 0)
 			a.SilencedUntil = &t
 		}
 		alerts = append(alerts, a)

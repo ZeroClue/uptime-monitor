@@ -1,15 +1,18 @@
+# Production docker-compose - pulls from GHCR
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
 services:
   monitor:
-    image: uptime-monitor:local
+    # Pull from GHCR instead of building locally
+    image: ghcr.io/zeroclue/uptime-monitor:${UPTIME_MONITOR_VERSION:-latest}
     container_name: uptime-monitor
     ports:
       - "8080:8080"
     volumes:
       - ./config:/config:ro
       - ./data:/data
-      - ./tailscale-state:/var/lib/tailscale
     environment:
-      - DASHBOARD_PASSWORD=${DASHBOARD_PASSWORD:-changeme}
+      - DASHBOARD_PASSWORD=${DASHBOARD_PASSWORD}
       - POLL_INTERVAL=${POLL_INTERVAL:-30s}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       # Tailscale configuration (optional)
@@ -25,7 +28,7 @@ services:
     network_mode: host
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/healthz"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -36,7 +39,7 @@ services:
         max-size: "10m"
         max-file: "3"
 
-# Alternative: Tailscale sidecar pattern (uncomment and comment out monitor's Tailscale env vars above)
+# Alternative: Tailscale sidecar pattern
 # profiles:
 #   tailscale-sidecar:
 #     services:

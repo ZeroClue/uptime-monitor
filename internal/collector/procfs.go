@@ -40,6 +40,18 @@ func (p *ProcfsCollector) Name() string {
 	return "procfs"
 }
 
+type NetInfo struct {
+	Interfaces map[string]NetInterface
+}
+
+type NetInterface struct {
+	RxBytes   uint64
+	TxBytes   uint64
+	RxPackets uint64
+	TxPackets uint64
+	Errors    uint64
+}
+
 func (p *ProcfsCollector) Collect(ctx context.Context, host Host) ([]Sample, error) {
 	loadAvg, err := p.getLoadAvg(ctx, host)
 	if err != nil {
@@ -61,6 +73,11 @@ func (p *ProcfsCollector) Collect(ctx context.Context, host Host) ([]Sample, err
 		return nil, fmt.Errorf("failed to get disk info: %w", err)
 	}
 
+	netInfo, err := p.getNetInfo(ctx, host)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get net info: %w", err)
+	}
+
 	uptime, err := p.getUptime(ctx, host)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get uptime: %w", err)
@@ -68,12 +85,13 @@ func (p *ProcfsCollector) Collect(ctx context.Context, host Host) ([]Sample, err
 
 	now := time.Now()
 	samples := []Sample{
-		{HostID: host.ID, Metric: "cpu.load_1m", Value: loadAvg.Load1, Timestamp: now},
+		{HostID: host.ID, Metric: "cpu.load_1m", Value: loadAvg.Load1, Timestamp: now, Collector: "procfs"},
 		{HostID: host.ID, Metric: "cpu.load_5m", Value: loadAvg.Load5, Timestamp: now},
 		{HostID: host.ID, Metric: "cpu.load_15m", Value: loadAvg.Load15, Timestamp: now},
 		{HostID: host.ID, Metric: "mem.total_bytes", Value: float64(memInfo.Total), Timestamp: now},
 		{HostID: host.ID, Metric: "mem.free_bytes", Value: float64(memInfo.Free), Timestamp: now},
 		{HostID: host.ID, Metric: "mem.available_bytes", Value: float64(memInfo.Available), Timestamp: now},
+		{HostID: host.ID, Metric: "mem.used_bytes", Value: float64(memInfo.Total - memInfo.Available), Timestamp: now},
 		{HostID: host.ID, Metric: "mem.cached_bytes", Value: float64(memInfo.Cached), Timestamp: now},
 		{HostID: host.ID, Metric: "disk.total_bytes", Value: float64(diskInfo.Total), Timestamp: now},
 		{HostID: host.ID, Metric: "disk.used_bytes", Value: float64(diskInfo.Used), Timestamp: now},
@@ -93,6 +111,16 @@ func (p *ProcfsCollector) Collect(ctx context.Context, host Host) ([]Sample, err
 		}
 	}
 
+	for iface, net := range netInfo.Interfaces {
+		samples = append(samples,
+			Sample{HostID: host.ID, Metric: "net." + iface + ".rx_bytes", Value: float64(net.RxBytes), Timestamp: now},
+			Sample{HostID: host.ID, Metric: "net." + iface + ".tx_bytes", Value: float64(net.TxBytes), Timestamp: now},
+			Sample{HostID: host.ID, Metric: "net." + iface + ".rx_packets", Value: float64(net.RxPackets), Timestamp: now},
+			Sample{HostID: host.ID, Metric: "net." + iface + ".tx_packets", Value: float64(net.TxPackets), Timestamp: now},
+			Sample{HostID: host.ID, Metric: "net." + iface + ".errors", Value: float64(net.Errors), Timestamp: now},
+		)
+	}
+
 	return samples, nil
 }
 
@@ -109,10 +137,21 @@ func (p *ProcfsCollector) getLoadAvg(ctx context.Context, host Host) (LoadAvg, e
 	if len(fields) < 3 {
 		return LoadAvg{}, fmt.Errorf("unexpected loadavg output: %s", output)
 	}
-	load1, _ := strconv.ParseFloat(fields[0], 64)
-	load5, _ := strconv.ParseFloat(fields[1], 64)
-	load15, _ := strconv.ParseFloat(fields[2], 64)
-	return LoadAvg{Load1: load1, Load5: load5, Load15: load15}, nil
+	nums := make([]float64, 0, 3)
+	for _, f := range fields {
+		v, err := strconv.ParseFloat(f, 64)
+		if err != nil {
+			continue
+		}
+		nums = append(nums, v)
+		if len(nums) == 3 {
+			break
+		}
+	}
+	if len(nums) < 3 {
+		return LoadAvg{}, fmt.Errorf("unexpected loadavg output: %s", output)
+	}
+	return LoadAvg{Load1: nums[0], Load5: nums[1], Load15: nums[2]}, nil
 }
 
 type MemInfo struct {
@@ -166,17 +205,39 @@ func (p *ProcfsCollector) getCPUStat(ctx context.Context, host Host) (*CPUStat, 
 	if len(lines) == 0 {
 		return nil, fmt.Errorf("empty /proc/stat")
 	}
-	fields := strings.Fields(lines[0])
-	if len(fields) < 8 || fields[0] != "cpu" {
-		return nil, fmt.Errorf("unexpected /proc/stat format")
+
+	var cpuLine string
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) > 0 && fields[0] == "cpu" {
+			cpuLine = line
+			break
+		}
+	}
+	if cpuLine == "" {
+		return nil, fmt.Errorf("no cpu line found in /proc/stat")
+	}
+	fields := strings.Fields(cpuLine)
+	if len(fields) < 8 {
+		return nil, fmt.Errorf("unexpected /proc/stat format: fields=%d", len(fields))
 	}
 	parse := func(i int) uint64 {
+		if i >= len(fields) {
+			return 0
+		}
 		v, _ := strconv.ParseUint(fields[i], 10, 64)
 		return v
 	}
 	return &CPUStat{
-		User: parse(1), Nice: parse(2), System: parse(3), Idle: parse(4),
-		Iowait: parse(5), Softirq: parse(6), Steal: parse(7),
+		User:      parse(1),
+		Nice:      parse(2),
+		System:    parse(3),
+		Idle:      parse(4),
+		Iowait:    parse(5),
+		Softirq:   parse(6),
+		Steal:     parse(7),
+		Guest:     parse(8),
+		GuestNice: parse(9),
 	}, nil
 }
 
@@ -194,10 +255,26 @@ func (p *ProcfsCollector) getDiskInfo(ctx context.Context, host Host) (DiskInfo,
 		return DiskInfo{}, err
 	}
 	lines := strings.Split(output, "\n")
-	if len(lines) < 2 {
+	if len(lines) < 3 {
 		return DiskInfo{}, fmt.Errorf("unexpected df output")
 	}
-	fields := strings.Fields(lines[1])
+
+	// Skip warning lines and header, find the data line
+	var dataLine string
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) >= 4 {
+			// Check if this looks like a data line (first field contains a path)
+			if strings.HasPrefix(fields[0], "/") {
+				dataLine = line
+				break
+			}
+		}
+	}
+	if dataLine == "" {
+		return DiskInfo{}, fmt.Errorf("no data line found in df output")
+	}
+	fields := strings.Fields(dataLine)
 	if len(fields) < 4 {
 		return DiskInfo{}, fmt.Errorf("unexpected df format")
 	}
@@ -213,11 +290,48 @@ func (p *ProcfsCollector) getUptime(ctx context.Context, host Host) (float64, er
 		return 0, err
 	}
 	fields := strings.Fields(output)
-	if len(fields) == 0 {
-		return 0, fmt.Errorf("empty uptime")
+	for _, f := range fields {
+		if v, err := strconv.ParseFloat(f, 64); err == nil {
+			return v, nil
+		}
 	}
-	uptime, _ := strconv.ParseFloat(fields[0], 64)
-	return uptime, nil
+	return 0, fmt.Errorf("no numeric uptime in output: %s", output)
+}
+
+func (p *ProcfsCollector) getNetInfo(ctx context.Context, host Host) (NetInfo, error) {
+	output, err := p.execCommand(ctx, host, "cat /proc/net/dev")
+	if err != nil {
+		return NetInfo{}, err
+	}
+	lines := strings.Split(output, "\n")
+	if len(lines) < 3 {
+		return NetInfo{Interfaces: make(map[string]NetInterface)}, nil
+	}
+	interfaces := make(map[string]NetInterface)
+	for _, line := range lines[2:] {
+		fields := strings.Fields(strings.TrimSpace(line))
+		if len(fields) < 17 {
+			continue
+		}
+		name := strings.TrimSuffix(fields[0], ":")
+		if name == "lo" {
+			continue
+		}
+		rxBytes, _ := strconv.ParseUint(fields[1], 10, 64)
+		rxPackets, _ := strconv.ParseUint(fields[2], 10, 64)
+		rxErrors, _ := strconv.ParseUint(fields[3], 10, 64)
+		txBytes, _ := strconv.ParseUint(fields[9], 10, 64)
+		txPackets, _ := strconv.ParseUint(fields[10], 10, 64)
+		txErrors, _ := strconv.ParseUint(fields[11], 10, 64)
+		interfaces[name] = NetInterface{
+			RxBytes:   rxBytes,
+			TxBytes:   txBytes,
+			RxPackets: rxPackets,
+			TxPackets: txPackets,
+			Errors:    rxErrors + txErrors,
+		}
+	}
+	return NetInfo{Interfaces: interfaces}, nil
 }
 
 func (p *ProcfsCollector) execCommand(ctx context.Context, host Host, cmd string) (string, error) {

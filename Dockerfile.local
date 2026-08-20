@@ -1,0 +1,24 @@
+# Minimal Dockerfile - copies pre-built binary, uses debian for glibc compatibility
+FROM debian:12-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates sqlite3 openssh-client curl gpg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Tailscale
+RUN curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null \
+    && curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.tailscale-keyring.list | tee /etc/apt/sources.list.d/tailscale.list >/dev/null \
+    && apt-get update && apt-get install -y --no-install-recommends tailscale \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY build/uptime-monitor /app/uptime-monitor
+COPY internal/dashboard/templates /app/internal/dashboard/templates
+
+EXPOSE 8080
+
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
+ENTRYPOINT ["/docker-entrypoint.sh"]
