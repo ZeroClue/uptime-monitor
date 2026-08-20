@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ZeroClue/uptime-monitor/internal/ssh"
@@ -61,7 +62,7 @@ func buildPsutilCommand(host Host) string {
 	if host.Sudo {
 		sudo = "sudo "
 	}
-	return fmt.Sprintf("%spython3 -c \"import psutil, json, time, socket; cpu = psutil.cpu_times_percent(interval=0.1); cores = psutil.cpu_times_percent(interval=0.1, percpu=True); mem = psutil.virtual_memory(); swap = psutil.swap_memory(); disk = psutil.disk_usage('/'); dio = psutil.disk_io_counters(perdisk=True); conns = psutil.net_connections(kind='inet'); tcp_states = [c.status for c in conns if c.type == socket.SOCK_STREAM]; udp_states = [c.status for c in conns if c.type == socket.SOCK_DGRAM]; from collections import Counter; tcp_counts = dict(Counter(tcp_states)); udp_counts = dict(Counter(udp_states)); uptime = psutil.boot_time(); procs = len(psutil.pids()); load = psutil.getloadavg(); print(json.dumps({'cpu': {'user': cpu.user, 'system': cpu.system, 'idle': cpu.idle, 'iowait': cpu.iowait, 'load1': load[0], 'load5': load[1], 'load15': load[2]}, 'cores': {str(i): {'user': c.user, 'system': c.system, 'idle': c.idle, 'iowait': c.iowait} for i, c in enumerate(cores)}, 'mem': {'total': mem.total, 'used': mem.used, 'free': mem.free, 'available': mem.available, 'cached': mem.cached, 'swap_total': swap.total, 'swap_free': swap.free, 'swap_used': swap.used}, 'disk': {'total': disk.total, 'used': disk.used, 'free': disk.free}, 'diskio': {k: {'read_bytes': v.read_bytes, 'write_bytes': v.write_bytes, 'read_ops': v.read_count, 'write_ops': v.write_count} for k, v in dio.items() if not k.startswith('loop')}, 'connections': tcp_counts, 'udp_connections': udp_counts, 'net': {k: {'rx_bytes': v.bytes_recv, 'tx_bytes': v.bytes_sent, 'rx_packets': v.packets_recv, 'tx_packets': v.packets_sent, 'errors': v.errin + v.errout} for k, v in psutil.net_io_counters(pernic=True).items()}, 'uptime': int(time.time() - uptime), 'process_count': procs}))\"", sudo)
+	return fmt.Sprintf("%spython3 -c \"import psutil, json, time, socket; cpu = psutil.cpu_times_percent(interval=0.1); cores = psutil.cpu_times_percent(interval=0.1, percpu=True); mem = psutil.virtual_memory(); swap = psutil.swap_memory(); disk = psutil.disk_usage('/'); dio = psutil.disk_io_counters(perdisk=True); conns = psutil.net_connections(kind='inet'); parts = psutil.disk_partitions(all=False); mounts = {}; for p in parts: du = psutil.disk_usage(p.mountpoint); import os; fs = os.statvfs(p.mountpoint); mounts[p.mountpoint] = {'total': du.total, 'used': du.used, 'free': du.free, 'inodes_total': fs.f_files, 'inodes_used': fs.f_files - fs.f_favail, 'inodes_free': fs.f_favail}; tcp_states = [c.status for c in conns if c.type == socket.SOCK_STREAM]; udp_states = [c.status for c in conns if c.type == socket.SOCK_DGRAM]; from collections import Counter; tcp_counts = dict(Counter(tcp_states)); udp_counts = dict(Counter(udp_states)); uptime = psutil.boot_time(); procs = len(psutil.pids()); load = psutil.getloadavg(); print(json.dumps({'cpu': {'user': cpu.user, 'system': cpu.system, 'idle': cpu.idle, 'iowait': cpu.iowait, 'load1': load[0], 'load5': load[1], 'load15': load[2]}, 'cores': {str(i): {'user': c.user, 'system': c.system, 'idle': c.idle, 'iowait': c.iowait} for i, c in enumerate(cores)}, 'mem': {'total': mem.total, 'used': mem.used, 'free': mem.free, 'available': mem.available, 'cached': mem.cached, 'swap_total': swap.total, 'swap_free': swap.free, 'swap_used': swap.used}, 'disk': {'total': disk.total, 'used': disk.used, 'free': disk.free}, 'diskio': {k: {'read_bytes': v.read_bytes, 'write_bytes': v.write_bytes, 'read_ops': v.read_count, 'write_ops': v.write_count} for k, v in dio.items() if not k.startswith('loop')}, 'mounts': mounts, 'connections': tcp_counts, 'udp_connections': udp_counts, 'net': {k: {'rx_bytes': v.bytes_recv, 'tx_bytes': v.bytes_sent, 'rx_packets': v.packets_recv, 'tx_packets': v.packets_sent, 'errors': v.errin + v.errout} for k, v in psutil.net_io_counters(pernic=True).items()}, 'uptime': int(time.time() - uptime), 'process_count': procs}))\"", sudo)
 }
 
 type PsutilOutput struct {
@@ -70,6 +71,7 @@ type PsutilOutput struct {
 	Mem            PsutilMem               `json:"mem"`
 	Disk           PsutilDisk              `json:"disk"`
 	DiskIO         map[string]PsutilDiskIO `json:"diskio"`
+	Mounts         map[string]PsutilMount  `json:"mounts"`
 	Connections    map[string]int          `json:"connections"`
 	UDPConnections map[string]int          `json:"udp_connections"`
 	Net            map[string]PsutilNet    `json:"net"`
@@ -109,6 +111,15 @@ type PsutilDiskIO struct {
 	WriteBytes uint64 `json:"write_bytes"`
 	ReadOps    uint64 `json:"read_ops"`
 	WriteOps   uint64 `json:"write_ops"`
+}
+
+type PsutilMount struct {
+	Total      uint64 `json:"total"`
+	Used       uint64 `json:"used"`
+	Free       uint64 `json:"free"`
+	InodeTotal uint64 `json:"inodes_total"`
+	InodeUsed  uint64 `json:"inodes_used"`
+	InodeFree  uint64 `json:"inodes_free"`
 }
 
 type PsutilNet struct {
@@ -182,6 +193,29 @@ func (p *PsutilCollector) convertToSamples(hostID int64, data PsutilOutput) []Sa
 			Sample{HostID: hostID, Metric: "diskio." + dev + ".read_ops", Value: float64(d.ReadOps), Timestamp: now},
 			Sample{HostID: hostID, Metric: "diskio." + dev + ".write_ops", Value: float64(d.WriteOps), Timestamp: now},
 		)
+	}
+
+	if data.Mounts != nil {
+		for mount, m := range data.Mounts {
+			sanitized := mount
+			if sanitized == "/" {
+				sanitized = "root"
+			} else {
+				sanitized = strings.TrimPrefix(sanitized, "/")
+			}
+			samples = append(samples,
+				Sample{HostID: hostID, Metric: "disk." + sanitized + ".total_bytes", Value: float64(m.Total), Timestamp: now},
+				Sample{HostID: hostID, Metric: "disk." + sanitized + ".used_bytes", Value: float64(m.Used), Timestamp: now},
+				Sample{HostID: hostID, Metric: "disk." + sanitized + ".free_bytes", Value: float64(m.Free), Timestamp: now},
+			)
+			if m.InodeTotal > 0 {
+				samples = append(samples, Sample{
+					HostID: hostID, Metric: "disk." + sanitized + ".inodes_used_pct",
+					Value:     float64(m.InodeUsed) / float64(m.InodeTotal) * 100,
+					Timestamp: now,
+				})
+			}
+		}
 	}
 
 	if data.Connections != nil {

@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Per-core CPU metrics** — collectors emit `cpu.core.N.user_pct`, `system_pct`, `idle_pct`, `iowait_pct` per core; host detail gains a "CPU Cores" panel with an all-cores overlay or per-core selector. Per-core series are excluded from the aggregate CPU panel.
 - **Disk I/O metrics** — collectors emit `diskio.<dev>.read_bytes`, `write_bytes`, `read_ops`, `write_ops` (cumulative counters); host detail gains a "Disk I/O" panel with a device selector showing per-second rates via client-side conversion.
 - **TCP/UDP connection states** — collectors parse `/proc/net/{tcp,tcp6,udp,udp6}` and `psutil.net_connections`, emitting `net.tcp.*` / `net.udp.*` state counts (ESTABLISHED, LISTEN, TIME_WAIT, etc.); host detail gains a "Connections" panel with a TCP/UDP selector and per-state bar chart.
+- **Filesystem details (multi-mount + inodes)** — collectors parse `df` for all mounts and `df -i` for inodes, emitting `disk.<mount>.{total,used,free}_bytes` and `inodes_used_pct`; host detail Disk panel gains a mount selector with inode usage readout. Threshold wildcards (`disk.*.used_pct`) still match.
 
 ## [0.3.0] - 2026-08-20
 

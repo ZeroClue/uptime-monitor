@@ -169,6 +169,44 @@ func TestParseConnectionStates_Empty(t *testing.T) {
 	}
 }
 
+func TestParseDiskStats_MultiMount(t *testing.T) {
+	output := "Filesystem     1B-blocks      Used Available Use% Mounted on\n" +
+		"/dev/sda1     1000000000  300000000  700000000  30% /\n" +
+		"/dev/sda2     2000000000 1000000000 1000000000  50% /home\n" +
+		"tmpfs          100000000       0   100000000   0% /tmp\n"
+	devs, err := parseDiskStatsMultiMount(output)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(devs) != 3 {
+		t.Fatalf("got %d mounts, want 3", len(devs))
+	}
+	root := devs["/"]
+	if root.Total != 1000000000 || root.Used != 300000000 || root.Free != 700000000 {
+		t.Errorf("root = %+v", root)
+	}
+	home := devs["/home"]
+	if home.Total != 2000000000 || home.Used != 1000000000 || home.Free != 1000000000 {
+		t.Errorf("home = %+v", home)
+	}
+}
+
+func TestParseDiskInodes(t *testing.T) {
+	output := "Filesystem      Inodes  IUsed   IFree IUse% Mounted on\n" +
+		"/dev/sda1     1000000 300000  700000   30% /\n" +
+		"/dev/sda2     2000000 500000 1500000   25% /home\n"
+	inodes, err := parseDiskInodes(output)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if inodes["/"].InodeTotal != 1000000 || inodes["/"].InodeUsed != 300000 || inodes["/"].InodeFree != 700000 {
+		t.Errorf("root inodes = %+v", inodes["/"])
+	}
+	if inodes["/home"].InodeTotal != 2000000 || inodes["/home"].InodeUsed != 500000 || inodes["/home"].InodeFree != 1500000 {
+		t.Errorf("home inodes = %+v", inodes["/home"])
+	}
+}
+
 func TestParseMemInfo_SwapFields(t *testing.T) {
 	output := "MemTotal:       16384000 kB\nMemFree:         1024000 kB\nMemAvailable:     8192000 kB\nSwapTotal:       2097152 kB\nSwapFree:        1048576 kB\n"
 	info, err := parseMemInfo(output)

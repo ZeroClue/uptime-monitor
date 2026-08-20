@@ -303,6 +303,76 @@
         if (el) el.textContent = total + ' total';
     }
 
+    function groupDiskMounts(metrics) {
+        const mounts = {};
+        for (const [key, data] of Object.entries(metrics)) {
+            const m = key.match(/^disk\.(.+?)\.(total_bytes|used_bytes|free_bytes|inodes_used_pct)$/);
+            if (m && data && data.length) {
+                if (!mounts[m[1]]) mounts[m[1]] = {};
+                mounts[m[1]][m[2]] = data;
+            }
+        }
+        return mounts;
+    }
+
+    function buildDiskPanel() {
+        const mounts = groupDiskMounts(allMetrics);
+        const names = Object.keys(mounts).sort();
+
+        let panel = document.getElementById('diskPanel');
+        if (!names.length) {
+            if (panel) panel.remove();
+            return;
+        }
+
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.className = 'panel';
+            panel.id = 'diskPanel';
+            panel.innerHTML = '<div class="panel-head"><h3>Disk</h3><span class="panel-value" id="diskChartValue"></span><select id="diskMount"></select></div><div class="chart-container"><canvas id="diskChart"></canvas></div>';
+            document.getElementById('charts').appendChild(panel);
+        }
+
+        const select = document.getElementById('diskMount');
+        const previous = select.value;
+        select.innerHTML = '';
+        names.forEach(n => {
+            const opt = document.createElement('option');
+            opt.value = n;
+            opt.textContent = n === 'root' ? '/' : '/' + n;
+            select.appendChild(opt);
+        });
+        if (names.includes(previous)) select.value = previous;
+        else select.value = names[0];
+        select.onchange = function () { renderDiskChart(this.value, mounts); };
+        renderDiskChart(select.value, mounts);
+    }
+
+    function renderDiskChart(mount, mounts) {
+        const m = mounts[mount];
+        const series = [];
+        const readout = { value: 0, isPct: false, label: '' };
+        for (const [metric, label] of [['used_bytes', 'Used'], ['free_bytes', 'Free'], ['total_bytes', 'Total'], ['inodes_used_pct', 'Inodes Used %']]) {
+            const d = m && m[metric];
+            if (d && d.length) {
+                series.push({ label: label, data: d });
+                if (metric === 'used_bytes') {
+                    readout.value = d[d.length - 1][1];
+                    readout.isPct = false;
+                    readout.label = label;
+                } else if (metric === 'inodes_used_pct') {
+                    readout.isPct = true;
+                }
+            }
+        }
+        renderChart('diskChart', 'Disk: ' + (mount === 'root' ? '/' : '/' + mount), series);
+        const el = document.getElementById('diskChartValue');
+        if (el && readout.value !== null) {
+            el.textContent = fmtVal(readout.value, readout.isPct);
+            el.title = (readout.label || 'Disk') + ' (latest)';
+        }
+    }
+
     function renderNetChart(iface) {
         const metrics = netInterfaces[iface];
         const series = [];
@@ -438,12 +508,11 @@
         const cpuKeys = Object.keys(groups.cpu).filter(k => !k.startsWith('cpu.load_') && !k.startsWith('cpu.core.'));
         const loadKeys = Object.keys(groups.cpu).filter(k => k.startsWith('cpu.load_'));
         const memKeys = Object.keys(groups.mem);
-        const diskKeys = Object.keys(groups.disk);
 
         panelFor('CPU', 'cpuChart', cpuKeys.map(k => ({ label: metricLabel(k, 'cpu.'), data: groups.cpu[k] })));
         panelFor('Load Average', 'loadChart', loadKeys.map(k => ({ label: metricLabel(k, 'cpu.'), data: groups.cpu[k] })));
         panelFor('Memory', 'memChart', memKeys.map(k => ({ label: metricLabel(k, 'mem.'), data: groups.mem[k] })));
-        panelFor('Disk', 'diskChart', diskKeys.map(k => ({ label: metricLabel(k, 'disk.'), data: groups.disk[k] })));
+        buildDiskPanel();
 
         buildNetPanel();
         buildDiskIOPanel();
