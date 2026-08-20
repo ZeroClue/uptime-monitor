@@ -178,6 +178,19 @@ func (p *ProcfsCollector) Collect(ctx context.Context, host Host) ([]Sample, err
 		}
 	}
 
+	connStates, err := p.getConnectionStates(ctx, host)
+	if err != nil {
+		p.logger.Debug("no connection states data", "error", err)
+	} else {
+		for proto, states := range connStates {
+			for state, count := range states {
+				samples = append(samples,
+					Sample{HostID: host.ID, Metric: fmt.Sprintf("net.%s.%s", proto, state), Value: float64(count), Timestamp: now},
+				)
+			}
+		}
+	}
+
 	return samples, nil
 }
 
@@ -445,6 +458,67 @@ func sortedDiskDevices(devices map[string]DiskIOStats) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+var tcpStateNames = map[string]string{
+	"01": "ESTABLISHED", "02": "SYN_SENT", "03": "SYN_RECV",
+	"04": "FIN_WAIT1", "05": "FIN_WAIT2", "06": "TIME_WAIT",
+	"07": "CLOSE", "08": "CLOSE_WAIT", "09": "LAST_ACK",
+	"0A": "LISTEN", "0B": "CLOSING",
+}
+
+var udpStateNames = map[string]string{
+	"07": "CLOSE",
+}
+
+func (p *ProcfsCollector) getConnectionStates(ctx context.Context, host Host) (map[string]map[string]int, error) {
+	tcpOut, err := p.execCommand(ctx, host, "cat /proc/net/tcp")
+	if err != nil {
+		return nil, fmt.Errorf("tcp: %w", err)
+	}
+	tcp6Out, err := p.execCommand(ctx, host, "cat /proc/net/tcp6")
+	if err != nil {
+		return nil, fmt.Errorf("tcp6: %w", err)
+	}
+	udpOut, err := p.execCommand(ctx, host, "cat /proc/net/udp")
+	if err != nil {
+		return nil, fmt.Errorf("udp: %w", err)
+	}
+	udp6Out, err := p.execCommand(ctx, host, "cat /proc/net/udp6")
+	if err != nil {
+		return nil, fmt.Errorf("udp6: %w", err)
+	}
+
+	result := make(map[string]map[string]int)
+	result["tcp"] = parseConnectionStates(tcpOut+"\n"+tcp6Out, "tcp")
+	result["udp"] = parseConnectionStates(udpOut+"\n"+udp6Out, "udp")
+	return result, nil
+}
+
+func parseConnectionStates(output string, proto string) map[string]int {
+	stateNames := tcpStateNames
+	if proto == "udp" {
+		stateNames = udpStateNames
+	}
+	counts := make(map[string]int)
+	lines := strings.Split(output, "\n")
+	if len(lines) < 2 {
+		return map[string]int{"total": 0}
+	}
+	for _, line := range lines[1:] {
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			continue
+		}
+		st := fields[3]
+		name := stateNames[st]
+		if name == "" {
+			name = "UNKNOWN_" + st
+		}
+		counts[name]++
+		counts["total"]++
+	}
+	return counts
 }
 
 func (p *ProcfsCollector) getDiskInfo(ctx context.Context, host Host) (DiskInfo, error) {

@@ -193,24 +193,114 @@
         });
     }
 
-    function groupDiskIO(metrics) {
-        const devs = {};
-        for (const [key, data] of Object.entries(metrics)) {
-            const m = key.match(/^diskio\.(.+?)\.(read_bytes|write_bytes|read_ops|write_ops)$/);
-            if (m && data && data.length) {
-                if (!devs[m[1]]) devs[m[1]] = {};
-                devs[m[1]][m[2]] = data;
-            }
-        }
-        return devs;
-    }
-
     function buildDiskIOPanel() {
         buildRatePanel({
             panelId: 'diskioPanel', selectId: 'diskioSelect', canvasId: 'diskioChart', title: 'Disk I/O',
             groups: groupDiskIO(allMetrics),
             ratePairs: [['read_bytes', 'read'], ['write_bytes', 'write']],
         });
+    }
+
+    function groupConnections(metrics) {
+        const conns = { tcp: {}, udp: {} };
+        for (const [key, data] of Object.entries(metrics)) {
+            const m = key.match(/^net\.(tcp|udp)\.(.+)$/);
+            if (m && data && data.length) {
+                conns[m[1]][m[2]] = data;
+            }
+        }
+        return conns;
+    }
+
+    function buildConnectionsPanel() {
+        const conns = groupConnections(allMetrics);
+        const hasTcp = Object.keys(conns.tcp).length > 0;
+        const hasUdp = Object.keys(conns.udp).length > 0;
+        if (!hasTcp && !hasUdp) return;
+
+        let panel = document.getElementById('connPanel');
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.className = 'panel';
+            panel.id = 'connPanel';
+            panel.innerHTML = '<div class="panel-head"><h3>Connections</h3><span class="panel-value" id="connChartValue"></span><select id="connProto"></select></div><div class="chart-container"><canvas id="connChart"></canvas></div>';
+            document.getElementById('charts').appendChild(panel);
+        }
+
+        const select = document.getElementById('connProto');
+        const previous = select.value;
+        select.innerHTML = '';
+        if (hasTcp) {
+            const opt = document.createElement('option');
+            opt.value = 'tcp';
+            opt.textContent = 'TCP';
+            select.appendChild(opt);
+        }
+        if (hasUdp) {
+            const opt = document.createElement('option');
+            opt.value = 'udp';
+            opt.textContent = 'UDP';
+            select.appendChild(opt);
+        }
+        if (['tcp', 'udp'].includes(previous)) select.value = previous;
+        else select.value = hasTcp ? 'tcp' : 'udp';
+        select.onchange = function () { renderConnectionsChart(this.value, conns); };
+        renderConnectionsChart(select.value, conns);
+    }
+
+    function renderConnectionsChart(proto, conns) {
+        const states = conns[proto];
+        const series = [];
+        const labels = [];
+        const data = [];
+        let total = 0;
+        for (const [state, d] of Object.entries(states)) {
+            if (state === 'total') {
+                total = d && d.length ? d[d.length - 1][1] : 0;
+                continue;
+            }
+            if (d && d.length) {
+                labels.push(state);
+                data.push(d[d.length - 1][1]);
+            }
+        }
+        if (data.length === 0) return;
+        const canvas = document.getElementById('connChart');
+        if (!canvas) return;
+        const container = canvas.parentElement;
+        let emptyMsg = container.querySelector('.empty');
+        canvas.style.display = '';
+        if (emptyMsg) emptyMsg.remove();
+        const colors = palette();
+        const datasets = [{
+            label: proto.toUpperCase() + ' Connections',
+            data: data,
+            backgroundColor: colors.slice(0, data.length).map(c => c + '88'),
+            borderColor: colors.slice(0, data.length),
+            borderWidth: 1.5,
+        }];
+        if (charts.connChart) {
+            const c = charts.connChart;
+            c.data.labels = labels;
+            c.data.datasets = datasets;
+            c.update();
+            return;
+        }
+        charts.connChart = new Chart(canvas.getContext('2d'), {
+            type: 'bar',
+            data: { labels, datasets },
+            options: {
+                ...chartOptions(),
+                indexAxis: 'y',
+                plugins: { ...chartOptions().plugins, legend: { display: false } },
+                scales: {
+                    x: { beginAtZero: true, grid: { color: cssVar('--border') } },
+                    y: { grid: { color: 'transparent' } }
+                }
+            }
+        });
+        const el = document.getElementById('connChartValue');
+        if (el) el.textContent = total + ' total';
     }
 
     function renderNetChart(iface) {
@@ -357,6 +447,7 @@
 
         buildNetPanel();
         buildDiskIOPanel();
+        buildConnectionsPanel();
         buildCorePanel();
     }
 

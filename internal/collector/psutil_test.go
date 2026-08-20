@@ -105,3 +105,28 @@ func TestConvertToSamples_DiskIO(t *testing.T) {
 		t.Errorf("sda read_ops = %v, want 30", v)
 	}
 }
+
+func TestConvertToSamples_Connections(t *testing.T) {
+	data := PsutilOutput{
+		Connections:    map[string]int{"ESTABLISHED": 5, "LISTEN": 2, "TIME_WAIT": 3, "total": 10},
+		UDPConnections: map[string]int{"CONN_NONE": 7},
+	}
+
+	p := &PsutilCollector{}
+	samples := p.convertToSamples(1, data)
+
+	got := map[string]float64{}
+	for _, s := range samples {
+		got[s.Metric] = s.Value
+	}
+
+	if v := got["net.tcp.ESTABLISHED"]; v != 5 {
+		t.Errorf("tcp established = %v, want 5", v)
+	}
+	if v := got["net.tcp.LISTEN"]; v != 2 {
+		t.Errorf("tcp listen = %v, want 2", v)
+	}
+	if v := got["net.udp.CONN_NONE"]; v != 7 {
+		t.Errorf("udp conns = %v, want 7", v)
+	}
+}

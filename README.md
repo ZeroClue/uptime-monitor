@@ -338,6 +338,8 @@ Metrics are named `<namespace>.<metric>` and auto-discovered by the host detail 
 | `disk.*` | `total_bytes`, `used_bytes`, `free_bytes` |
 | `diskio.<dev>.*` | `read_bytes`, `write_bytes`, `read_ops`, `write_ops` (displayed as per-second rates) |
 | `net.<iface>.*` | `rx_bytes`, `tx_bytes`, `rx_packets`, `tx_packets`, `errors` (displayed as per-second rates) |
+| `net.tcp.*` | `ESTABLISHED`, `SYN_SENT`, `SYN_RECV`, `FIN_WAIT1`, `FIN_WAIT2`, `TIME_WAIT`, `CLOSE_WAIT`, `LAST_ACK`, `LISTEN`, `CLOSING`, `total` |
+| `net.udp.*` | `CLOSE`, `total` |
 | `system.*` | `process_count` |
 | `uptime.seconds` | Seconds since boot (alerts support `below: true`) |
 
