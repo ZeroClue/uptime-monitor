@@ -100,7 +100,7 @@ func (p *ProcfsCollector) Collect(ctx context.Context, host Host) ([]Sample, err
 	}
 
 	if cpuStat != nil {
-		total := cpuStat.User + cpuStat.System + cpuStat.Idle + cpuStat.Iowait + cpuStat.Nice + cpuStat.Softirq + cpuStat.Steal + cpuStat.Guest + cpuStat.GuestNice
+		total := cpuStat.User + cpuStat.System + cpuStat.Idle + cpuStat.Iowait + cpuStat.Nice + cpuStat.Softirq + cpuStat.Steal
 		if total > 0 {
 			samples = append(samples,
 				Sample{HostID: host.ID, Metric: "cpu.user_pct", Value: float64(cpuStat.User) / float64(total) * 100, Timestamp: now},
@@ -133,6 +133,10 @@ func (p *ProcfsCollector) getLoadAvg(ctx context.Context, host Host) (LoadAvg, e
 	if err != nil {
 		return LoadAvg{}, err
 	}
+	return parseLoadAvg(output)
+}
+
+func parseLoadAvg(output string) (LoadAvg, error) {
 	fields := strings.Fields(output)
 	if len(fields) < 3 {
 		return LoadAvg{}, fmt.Errorf("unexpected loadavg output: %s", output)
@@ -201,6 +205,10 @@ func (p *ProcfsCollector) getCPUStat(ctx context.Context, host Host) (*CPUStat, 
 	if err != nil {
 		return nil, err
 	}
+	return parseCPUStat(output)
+}
+
+func parseCPUStat(output string) (*CPUStat, error) {
 	lines := strings.Split(output, "\n")
 	if len(lines) == 0 {
 		return nil, fmt.Errorf("empty /proc/stat")
@@ -289,6 +297,10 @@ func (p *ProcfsCollector) getUptime(ctx context.Context, host Host) (float64, er
 	if err != nil {
 		return 0, err
 	}
+	return parseUptime(output)
+}
+
+func parseUptime(output string) (float64, error) {
 	fields := strings.Fields(output)
 	for _, f := range fields {
 		if v, err := strconv.ParseFloat(f, 64); err == nil {

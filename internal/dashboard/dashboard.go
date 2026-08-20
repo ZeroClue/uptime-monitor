@@ -491,7 +491,24 @@ func (s *Server) getMetricSeries(ctx context.Context, hostID int64, metric strin
 	for i, s := range samples {
 		data[i] = [2]float64{float64(s.Timestamp.Unix()), s.Value}
 	}
+
+	// Network counters are cumulative; convert to per-second rates.
+	if strings.HasSuffix(metric, ".rx_bytes") || strings.HasSuffix(metric, ".tx_bytes") {
+		return toRateSeries(data)
+	}
 	return data
+}
+
+func toRateSeries(data [][2]float64) [][2]float64 {
+	out := make([][2]float64, 0, len(data))
+	for i := 1; i < len(data); i++ {
+		dt := data[i][0] - data[i-1][0]
+		if dt <= 0 {
+			continue
+		}
+		out = append(out, [2]float64{data[i][0], (data[i][1] - data[i-1][1]) / dt})
+	}
+	return out
 }
 
 func (s *Server) handleAPICompare(w http.ResponseWriter, r *http.Request) {
@@ -560,6 +577,15 @@ func (s *Server) handleAPIAlerts(w http.ResponseWriter, r *http.Request) {
 			}
 			if err := s.db.SilenceAlert(r.Context(), parseInt64(alertID), duration); err != nil {
 				s.logger.Error("failed to silence alert", "error", err)
+				http.Error(w, "Internal error", http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if action == "acknowledge" && alertID != "" {
+			if err := s.db.AcknowledgeAlert(r.Context(), parseInt64(alertID)); err != nil {
+				s.logger.Error("failed to acknowledge alert", "error", err)
 				http.Error(w, "Internal error", http.StatusInternalServerError)
 				return
 			}

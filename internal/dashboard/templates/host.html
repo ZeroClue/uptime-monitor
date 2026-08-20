@@ -35,7 +35,7 @@
         <h1>{{.Name}}</h1>
         <a href="/" class="back">← Back to hosts</a>
     </div>
-    <div class="meta">{{.Connection}}://{{.Endpoint}}:{{.Port}} · User: {{.User}} · Tags: {{range .Tags}}<span class="tag">{{.}}</span>{{end}}</div>
+    <div class="meta">{{.Connection}}://{{.Endpoint}}:{{.Port}} · User: {{.User}} · Tags: {{range .Tags}}<span class="tag">{{.}}</span>{{end}} · <span id="uptimeLabel">Uptime: —</span></div>
     <div class="controls">
         <label>Time range: </label>
         <select id="timeRange" onchange="loadMetrics()">
@@ -147,9 +147,10 @@
             document.getElementById('charts').appendChild(panel);
 
             const select = document.getElementById('netIface');
+            const isVirtual = n => /^(veth|br-|docker|virbr|lo)/.test(n);
             const sorted = names.sort((a, b) => {
-                const ap = PHYSICAL_RE.test(a) ? 0 : 1;
-                const bp = PHYSICAL_RE.test(b) ? 0 : 1;
+                const ap = isVirtual(a) ? 1 : 0;
+                const bp = isVirtual(b) ? 1 : 0;
                 return ap - bp || a.localeCompare(b);
             });
             sorted.forEach(n => {
@@ -222,11 +223,23 @@
                     allMetrics = data.metrics || {};
                     document.getElementById('loading').style.display = 'none';
                     renderPanels();
+                    updateUptimeLabel();
                 })
                 .catch(err => {
                     document.getElementById('loading').textContent = 'Failed to load metrics: ' + err.message;
                     document.getElementById('loading').className = 'error';
                 });
+        }
+
+        function updateUptimeLabel() {
+            const series = allMetrics['uptime.seconds'];
+            const label = document.getElementById('uptimeLabel');
+            if (!series || !series.length) return;
+            const secs = series[series.length - 1][1];
+            const d = Math.floor(secs / 86400);
+            const h = Math.floor((secs % 86400) / 3600);
+            const m = Math.floor((secs % 3600) / 60);
+            label.textContent = 'Uptime: ' + (d > 0 ? d + 'd ' : '') + h + 'h ' + m + 'm';
         }
 
         document.addEventListener('DOMContentLoaded', loadMetrics);

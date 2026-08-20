@@ -19,6 +19,7 @@
         .btn-ack:hover { background: #0052a3; }
         .btn-ack.acked { background: #616161; cursor: default; }
         .empty { color: #666; text-align: center; padding: 60px 0; }
+        .alert.acked { opacity: 0.6; }
     </style>
 </head>
 <body>
@@ -27,10 +28,10 @@
         <a href="/">← Back to hosts</a>
     </div>
     {{range .Alerts}}
-    <div class="alert {{if eq .Severity "critical"}}critical{{else if eq .Type "collection_failure"}}down{{else}}warning{{end}}">
+    <div class="alert {{if eq .Severity "critical"}}critical{{else if eq .Type "collection_failure"}}down{{else}}warning{{end}}{{if .AcknowledgedAt}} acked{{end}}">
         <div class="alert-header">
             <span class="alert-title">{{if .HostName}}{{.HostName}}{{else}}Host #{{.HostID}}{{end}}: {{.Type}}</span>
-            {{if .AcknowledgedAt}}<button class="btn-ack acked">Acknowledged</button>{{else}}<button class="btn-ack">Acknowledge</button>{{end}}
+            {{if .AcknowledgedAt}}<button class="btn-ack acked">Acknowledged</button>{{else}}<button class="btn-ack" data-alert-id="{{.ID}}" onclick="acknowledgeAlert(this)">Acknowledge</button>{{end}}
         </div>
         <div class="alert-meta">
             {{if .Metric}}{{.Metric}}: {{end}}{{.Message}} · Severity: {{.Severity}} · Fired: {{.FiredAt.Format "2006-01-02 15:04:05"}}
@@ -40,5 +41,19 @@
     {{else}}
     <div class="empty">No alerts</div>
     {{end}}
+    <script>
+        function acknowledgeAlert(btn) {
+            const id = btn.getAttribute('data-alert-id');
+            fetch('/api/alerts?action=acknowledge&id=' + id, { method: 'POST' })
+                .then(r => {
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    const alert = btn.closest('.alert');
+                    alert.classList.add('acked');
+                    btn.classList.add('acked');
+                    btn.textContent = 'Acknowledged';
+                })
+                .catch(err => console.error('Failed to acknowledge alert:', err));
+        }
+    </script>
 </body>
 </html>
