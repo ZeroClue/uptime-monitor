@@ -1,0 +1,431 @@
+{{define "title"}}Alert Configuration{{end}}
+{{define "content"}}
+<div class="header">
+    <h1>Alert Configuration</h1>
+</div>
+<div class="controls">
+    <div class="segmented" role="group" aria-label="Config section">
+        <button type="button" class="seg-btn active" data-section="rules" onclick="showSection('rules')">Alert Rules</button>
+        <button type="button" class="seg-btn" data-section="channels" onclick="showSection('channels')">Notification Channels</button>
+    </div>
+</div>
+
+<div id="rulesSection">
+    <div class="toolbar">
+        <button class="btn-primary" onclick="openRuleModal()">+ Add Rule</button>
+    </div>
+    <table class="data-table" id="rulesTable">
+        <thead>
+            <tr>
+                <th>Metric</th>
+                <th>Scope</th>
+                <th>Warning</th>
+                <th>Critical</th>
+                <th>Below</th>
+                <th>Enabled</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="rulesBody"></tbody>
+    </table>
+</div>
+
+<div id="channelsSection" hidden>
+    <div class="toolbar">
+        <button class="btn-primary" onclick="openChannelModal()">+ Add Channel</button>
+    </div>
+    <table class="data-table" id="channelsTable">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Config</th>
+                <th>Enabled</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="channelsBody"></tbody>
+    </table>
+</div>
+
+<!-- Rule Modal -->
+<div class="modal" id="ruleModal" hidden>
+    <div class="modal-content">
+        <h3 id="ruleModalTitle">Add Alert Rule</h3>
+        <form id="ruleForm">
+            <input type="hidden" name="id" id="ruleId">
+            <div class="form-group">
+                <label for="ruleMetric">Metric Type</label>
+                <select name="metric" id="ruleMetric" required>
+                    <optgroup label="CPU">
+                        <option value="cpu.user_pct">CPU User %</option>
+                        <option value="cpu.system_pct">CPU System %</option>
+                        <option value="cpu.idle_pct">CPU Idle %</option>
+                        <option value="cpu.iowait_pct">CPU IOWait %</option>
+                        <option value="cpu.load_1m">Load 1m</option>
+                        <option value="cpu.load_5m">Load 5m</option>
+                        <option value="cpu.load_15m">Load 15m</option>
+                    </optgroup>
+                    <optgroup label="Memory">
+                        <option value="mem.used_pct">Memory Used %</option>
+                        <option value="mem.swap_used_pct">Swap Used %</option>
+                    </optgroup>
+                    <optgroup label="Disk">
+                        <option value="disk.*.used_pct">Disk Used % (all mounts)</option>
+                        <option value="disk.*.inodes_used_pct">Disk Inodes Used % (all mounts)</option>
+                    </optgroup>
+                    <optgroup label="Network">
+                        <option value="net.*.rx_bytes_per_sec">Network RX Rate</option>
+                        <option value="net.*.tx_bytes_per_sec">Network TX Rate</option>
+                        <option value="net.*.errors_per_sec">Network Errors/sec</option>
+                    </optgroup>
+                    <optgroup label="Uptime">
+                        <option value="uptime.seconds">Uptime Seconds</option>
+                    </optgroup>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="ruleScope">Scope</label>
+                <select name="scope" id="ruleScope" required onchange="toggleHostSelect()">
+                    <option value="global">Global (all hosts)</option>
+                    <option value="host">Specific Host</option>
+                </select>
+            </div>
+            <div class="form-group" id="hostSelectGroup" hidden>
+                <label for="ruleHost">Host</label>
+                <select name="host_id" id="ruleHost"></select>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="ruleWarning">Warning Threshold</label>
+                    <input type="number" name="warning" id="ruleWarning" step="0.01" required>
+                </div>
+                <div class="form-group">
+                    <label for="ruleCritical">Critical Threshold</label>
+                    <input type="number" name="critical" id="ruleCritical" step="0.01" required>
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" name="below" id="ruleBelow"> Alert when value goes BELOW threshold
+                </label>
+            </div>
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" name="enabled" id="ruleEnabled" checked> Enabled
+                </label>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" onclick="closeRuleModal()">Cancel</button>
+                <button type="submit" class="btn-primary">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Channel Modal -->
+<div class="modal" id="channelModal" hidden>
+    <div class="modal-content">
+        <h3 id="channelModalTitle">Add Notification Channel</h3>
+        <form id="channelForm">
+            <input type="hidden" name="id" id="channelId">
+            <div class="form-group">
+                <label for="channelName">Name</label>
+                <input type="text" name="name" id="channelName" required placeholder="e.g. Slack #alerts">
+            </div>
+            <div class="form-group">
+                <label for="channelType">Type</label>
+                <select name="type" id="channelType" required onchange="toggleChannelConfig()">
+                    <option value="slack">Slack</option>
+                    <option value="discord">Discord</option>
+                    <option value="pagerduty">PagerDuty</option>
+                    <option value="webhook">Generic Webhook</option>
+                    <option value="email">Email (SMTP)</option>
+                </select>
+            </div>
+            <div class="form-group" id="channelConfigGroup">
+                <label for="channelConfig">Configuration (JSON)</label>
+                <textarea name="config" id="channelConfig" rows="6" required placeholder='{"url": "https://hooks.slack.com/...", "secret": "optional"}'></textarea>
+            </div>
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" name="enabled" id="channelEnabled" checked> Enabled
+                </label>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" onclick="closeChannelModal()">Cancel</button>
+                <button type="submit" class="btn-primary">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    let rules = [];
+    let channels = [];
+    let hosts = [];
+
+    // API helpers
+    async function apiGet(path) {
+        const res = await fetch(path, { headers: { 'Accept': 'application/json' } });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+    }
+    async function apiPost(path, body) {
+        const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+    }
+    async function apiPut(path, body) {
+        const res = await fetch(path, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+    }
+    async function apiDelete(path) {
+        const res = await fetch(path, { method: 'DELETE' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+    }
+
+    function showSection(section) {
+        document.getElementById('rulesSection').hidden = section !== 'rules';
+        document.getElementById('channelsSection').hidden = section !== 'channels';
+        document.querySelectorAll('.seg-btn[data-section]').forEach(b =>
+            b.classList.toggle('active', b.getAttribute('data-section') === section)
+        );
+    }
+
+    // Rules
+    async function loadRules() {
+        rules = await apiGet('/api/alert-rules');
+        renderRules();
+    }
+
+    function renderRules() {
+        const tbody = document.getElementById('rulesBody');
+        tbody.innerHTML = rules.map(r => `
+            <tr>
+                <td>${r.metric}</td>
+                <td>${r.scope}${r.host_id ? ' (Host ' + r.host_id + ')' : ''}</td>
+                <td class="num">${r.warning}</td>
+                <td class="num">${r.critical}</td>
+                <td>${r.below ? '✓' : '✗'}</td>
+                <td>${r.enabled ? '<span class="status ok">ON</span>' : '<span class="status down">OFF</span>'}</td>
+                <td>
+                    <button class="btn-sm" onclick="editRule(${r.id})">Edit</button>
+                    <button class="btn-sm btn-danger" onclick="deleteRule(${r.id})">Delete</button>
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    function openRuleModal(rule = null) {
+        const modal = document.getElementById('ruleModal');
+        const form = document.getElementById('ruleForm');
+        const title = document.getElementById('ruleModalTitle');
+        form.reset();
+        document.getElementById('ruleId').value = '';
+        document.getElementById('ruleHost').innerHTML = '<option value="">Select host</option>';
+        hosts.forEach(h => {
+            const opt = document.createElement('option');
+            opt.value = h.id;
+            opt.textContent = h.name;
+            document.getElementById('ruleHost').appendChild(opt);
+        });
+        if (rule) {
+            title.textContent = 'Edit Alert Rule';
+            document.getElementById('ruleId').value = rule.id;
+            document.getElementById('ruleMetric').value = rule.metric;
+            document.getElementById('ruleScope').value = rule.scope;
+            document.getElementById('ruleWarning').value = rule.warning;
+            document.getElementById('ruleCritical').value = rule.critical;
+            document.getElementById('ruleBelow').checked = rule.below;
+            document.getElementById('ruleEnabled').checked = rule.enabled;
+            if (rule.scope === 'host' && rule.host_id) {
+                document.getElementById('ruleHost').value = rule.host_id;
+                toggleHostSelect();
+            }
+        } else {
+            title.textContent = 'Add Alert Rule';
+        }
+        toggleHostSelect();
+        modal.hidden = false;
+    }
+
+    function closeRuleModal() {
+        document.getElementById('ruleModal').hidden = true;
+    }
+
+    function toggleHostSelect() {
+        const scope = document.getElementById('ruleScope').value;
+        document.getElementById('hostSelectGroup').hidden = scope !== 'host';
+    }
+
+    async function submitRule(e) {
+        e.preventDefault();
+        const form = e.target;
+        const data = {
+            metric: form.metric.value,
+            scope: form.scope.value,
+            warning: parseFloat(form.warning.value),
+            critical: parseFloat(form.critical.value),
+            below: form.below.checked,
+            enabled: form.enabled.checked,
+        };
+        if (data.scope === 'host') data.host_id = parseInt(form.host_id.value);
+        const id = form.id.value;
+        try {
+            if (id) {
+                await apiPut('/api/alert-rules/' + id, data);
+            } else {
+                await apiPost('/api/alert-rules', data);
+            }
+            closeRuleModal();
+            loadRules();
+        } catch (err) {
+            alert('Error: ' + err.message);
+        }
+    }
+
+    async function editRule(id) {
+        const rule = rules.find(r => r.id === id);
+        if (rule) openRuleModal(rule);
+    }
+
+    async function deleteRule(id) {
+        if (!confirm('Delete this alert rule?')) return;
+        try {
+            await apiDelete('/api/alert-rules/' + id);
+            loadRules();
+        } catch (err) {
+            alert('Error: ' + err.message);
+        }
+    }
+
+    // Channels
+    async function loadChannels() {
+        channels = await apiGet('/api/notification-channels');
+        renderChannels();
+    }
+
+    function renderChannels() {
+        const tbody = document.getElementById('channelsBody');
+        tbody.innerHTML = channels.map(c => `
+            <tr>
+                <td>${c.name}</td>
+                <td>${c.type}</td>
+                <td class="mono" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${c.config}</td>
+                <td>${c.enabled ? '<span class="status ok">ON</span>' : '<span class="status down">OFF</span>'}</td>
+                <td>
+                    <button class="btn-sm" onclick="editChannel(${c.id})">Edit</button>
+                    <button class="btn-sm btn-danger" onclick="deleteChannel(${c.id})">Delete</button>
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    function openChannelModal(channel = null) {
+        const modal = document.getElementById('channelModal');
+        const form = document.getElementById('channelForm');
+        const title = document.getElementById('channelModalTitle');
+        form.reset();
+        document.getElementById('channelId').value = '';
+        if (channel) {
+            title.textContent = 'Edit Notification Channel';
+            document.getElementById('channelId').value = channel.id;
+            document.getElementById('channelName').value = channel.name;
+            document.getElementById('channelType').value = channel.type;
+            document.getElementById('channelConfig').value = channel.config;
+            document.getElementById('channelEnabled').checked = channel.enabled;
+            toggleChannelConfig();
+        } else {
+            title.textContent = 'Add Notification Channel';
+        }
+        modal.hidden = false;
+    }
+
+    function closeChannelModal() {
+        document.getElementById('channelModal').hidden = true;
+    }
+
+    function toggleChannelConfig() {
+        const type = document.getElementById('channelType').value;
+        const textarea = document.getElementById('channelConfig');
+        const templates = {
+            slack: '{"url": "https://hooks.slack.com/services/...", "secret": "optional"}',
+            discord: '{"url": "https://discord.com/api/webhooks/...", "secret": "optional"}',
+            pagerduty: '{"url": "https://events.pagerduty.com/...", "secret": "routing_key"}',
+            webhook: '{"url": "https://your-webhook-endpoint", "secret": "optional"}',
+            email: '{"smtp_host": "smtp.example.com", "smtp_port": "587", "username": "user", "password": "pass", "from": "alerts@example.com", "to": "ops@example.com"}',
+        };
+        textarea.placeholder = templates[type] || '{"key": "value"}';
+    }
+
+    async function submitChannel(e) {
+        e.preventDefault();
+        const form = e.target;
+        const data = {
+            name: form.name.value,
+            type: form.type.value,
+            config: form.config.value,
+            enabled: form.enabled.checked,
+        };
+        const id = form.id.value;
+        try {
+            if (id) {
+                await apiPut('/api/notification-channels/' + id, data);
+            } else {
+                await apiPost('/api/notification-channels', data);
+            }
+            closeChannelModal();
+            loadChannels();
+        } catch (err) {
+            alert('Error: ' + err.message);
+        }
+    }
+
+    function editChannel(id) {
+        const channel = channels.find(c => c.id === id);
+        if (channel) openChannelModal(channel);
+    }
+
+    async function deleteChannel(id) {
+        if (!confirm('Delete this notification channel?')) return;
+        try {
+            await apiDelete('/api/notification-channels/' + id);
+            loadChannels();
+        } catch (err) {
+            alert('Error: ' + err.message);
+        }
+    }
+
+    // Init
+    document.addEventListener('DOMContentLoaded', async () => {
+        try {
+            hosts = await apiGet('/api/hosts');
+            await loadRules();
+            await loadChannels();
+        } catch (err) {
+            console.error('Failed to load config:', err);
+        }
+        document.getElementById('ruleForm').addEventListener('submit', submitRule);
+        document.getElementById('channelForm').addEventListener('submit', submitChannel);
+    });
+</script>
+<style>
+    .toolbar { margin-bottom: 1rem; }
+    .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.8rem; }
+    .btn-danger { background: var(--crit); color: white; }
+    .form-row { display: flex; gap: 1rem; }
+    .form-row .form-group { flex: 1; }
+    .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 100; }
+    .modal[hidden] { display: none; }
+    .modal-content { background: var(--bg); padding: 1.5rem; border-radius: 8px; min-width: 500px; max-width: 90vw; max-height: 90vh; overflow: auto; }
+    .form-group { margin-bottom: 1rem; }
+    .form-group label { display: block; margin-bottom: 0.25rem; font-weight: 500; }
+    .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); }
+    .form-group textarea { font-family: monospace; font-size: 0.85rem; }
+    .checkbox-label { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.5rem; }
+    .seg-btn[data-section], .seg-btn[data-status] { flex: 1; }
+</style>
+{{end}}
