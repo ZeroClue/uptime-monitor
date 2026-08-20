@@ -10,9 +10,8 @@ func TestParseLoadAvg_WithWarningLine(t *testing.T) {
 		output string
 		want   LoadAvg
 	}{
-		{"clean", "0.55 0.55 0.55 1/559 2388261", LoadAvg{Load1: 0.55, Load5: 0.55, Load15: 0.55, Running: 1, Total: 559, LastPID: 2388261}},
-		{"ssh-warning-prefix", "Warning: Permanently added 'x' to the list of known hosts.\n0.55 0.42 0.38 1/559 1", LoadAvg{Load1: 0.55, Load5: 0.42, Load15: 0.38, Running: 1, Total: 559, LastPID: 1}},
-		{"no-counts", "0.55 0.42 0.38", LoadAvg{Load1: 0.55, Load5: 0.42, Load15: 0.38}},
+		{"clean", "0.55 0.55 0.55 1/559 2388261", LoadAvg{0.55, 0.55, 0.55}},
+		{"ssh-warning-prefix", "Warning: Permanently added 'x' to the list of known hosts.\n0.55 0.42 0.38 1/559 1", LoadAvg{0.55, 0.42, 0.38}},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -92,5 +91,38 @@ func TestParseMemInfo_MissingSwap(t *testing.T) {
 	}
 	if info.SwapTotal != 0 || info.SwapFree != 0 {
 		t.Errorf("expected zero swap fields, got %+v", info)
+	}
+}
+
+func TestSwapUsedPct(t *testing.T) {
+	pct, ok := swapUsedPct(2097152*1024, 1048576*1024)
+	if !ok {
+		t.Fatal("expected ok for host with swap")
+	}
+	if pct != 50 {
+		t.Errorf("pct = %v, want 50", pct)
+	}
+}
+
+func TestSwapUsedPct_NoSwap(t *testing.T) {
+	if _, ok := swapUsedPct(0, 0); ok {
+		t.Fatal("expected not-ok for host with no swap")
+	}
+}
+
+func TestParseProcessCount(t *testing.T) {
+	output := "1\n10\ncpuinfo\nmeminfo\nself\nthread-self\n1234\n"
+	got, err := parseProcessCount(output)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != 3 {
+		t.Errorf("count = %d, want 3 (pids 1, 10, 1234)", got)
+	}
+}
+
+func TestParseProcessCount_NoPids(t *testing.T) {
+	if _, err := parseProcessCount("cpuinfo\nmeminfo\n"); err == nil {
+		t.Fatal("expected error when no pid entries present")
 	}
 }

@@ -84,11 +84,11 @@ func (p *ProcfsCollector) Collect(ctx context.Context, host Host) ([]Sample, err
 	}
 
 	now := time.Now()
+	swapUsed := memInfo.SwapTotal - memInfo.SwapFree
 	samples := []Sample{
 		{HostID: host.ID, Metric: "cpu.load_1m", Value: loadAvg.Load1, Timestamp: now, Collector: "procfs"},
 		{HostID: host.ID, Metric: "cpu.load_5m", Value: loadAvg.Load5, Timestamp: now},
 		{HostID: host.ID, Metric: "cpu.load_15m", Value: loadAvg.Load15, Timestamp: now},
-		{HostID: host.ID, Metric: "system.process_count", Value: float64(loadAvg.Total), Timestamp: now},
 		{HostID: host.ID, Metric: "mem.total_bytes", Value: float64(memInfo.Total), Timestamp: now},
 		{HostID: host.ID, Metric: "mem.free_bytes", Value: float64(memInfo.Free), Timestamp: now},
 		{HostID: host.ID, Metric: "mem.available_bytes", Value: float64(memInfo.Available), Timestamp: now},
@@ -96,17 +96,26 @@ func (p *ProcfsCollector) Collect(ctx context.Context, host Host) ([]Sample, err
 		{HostID: host.ID, Metric: "mem.cached_bytes", Value: float64(memInfo.Cached), Timestamp: now},
 		{HostID: host.ID, Metric: "mem.swap_total_bytes", Value: float64(memInfo.SwapTotal), Timestamp: now},
 		{HostID: host.ID, Metric: "mem.swap_free_bytes", Value: float64(memInfo.SwapFree), Timestamp: now},
-		{HostID: host.ID, Metric: "mem.swap_used_bytes", Value: float64(memInfo.SwapTotal - memInfo.SwapFree), Timestamp: now},
+		{HostID: host.ID, Metric: "mem.swap_used_bytes", Value: float64(swapUsed), Timestamp: now},
 		{HostID: host.ID, Metric: "disk.total_bytes", Value: float64(diskInfo.Total), Timestamp: now},
 		{HostID: host.ID, Metric: "disk.used_bytes", Value: float64(diskInfo.Used), Timestamp: now},
 		{HostID: host.ID, Metric: "disk.free_bytes", Value: float64(diskInfo.Free), Timestamp: now},
 		{HostID: host.ID, Metric: "uptime.seconds", Value: uptime, Timestamp: now},
 	}
 
-	if memInfo.SwapTotal > 0 {
+	if pct, ok := swapUsedPct(memInfo.SwapTotal, memInfo.SwapFree); ok {
 		samples = append(samples, Sample{
 			HostID: host.ID, Metric: "mem.swap_used_pct",
-			Value:     float64(memInfo.SwapTotal-memInfo.SwapFree) / float64(memInfo.SwapTotal) * 100,
+			Value:     pct,
+			Timestamp: now,
+		})
+	}
+
+	procCount, err := p.getProcessCount(ctx, host)
+	if err == nil {
+		samples = append(samples, Sample{
+			HostID: host.ID, Metric: "system.process_count",
+			Value:     float64(procCount),
 			Timestamp: now,
 		})
 	}
@@ -138,8 +147,6 @@ func (p *ProcfsCollector) Collect(ctx context.Context, host Host) ([]Sample, err
 
 type LoadAvg struct {
 	Load1, Load5, Load15 float64
-	Running, Total       int
-	LastPID              int64
 }
 
 func (p *ProcfsCollector) getLoadAvg(ctx context.Context, host Host) (LoadAvg, error) {
@@ -156,14 +163,12 @@ func parseLoadAvg(output string) (LoadAvg, error) {
 		return LoadAvg{}, fmt.Errorf("unexpected loadavg output: %s", output)
 	}
 	nums := make([]float64, 0, 3)
-	lastIdx := 0
-	for i, f := range fields {
+	for _, f := range fields {
 		v, err := strconv.ParseFloat(f, 64)
 		if err != nil {
 			continue
 		}
 		nums = append(nums, v)
-		lastIdx = i
 		if len(nums) == 3 {
 			break
 		}
@@ -171,17 +176,7 @@ func parseLoadAvg(output string) (LoadAvg, error) {
 	if len(nums) < 3 {
 		return LoadAvg{}, fmt.Errorf("unexpected loadavg output: %s", output)
 	}
-	la := LoadAvg{Load1: nums[0], Load5: nums[1], Load15: nums[2]}
-	if lastIdx+1 < len(fields) {
-		if parts := strings.Split(fields[lastIdx+1], "/"); len(parts) == 2 {
-			la.Running, _ = strconv.Atoi(parts[0])
-			la.Total, _ = strconv.Atoi(parts[1])
-		}
-	}
-	if lastIdx+2 < len(fields) {
-		la.LastPID, _ = strconv.ParseInt(fields[lastIdx+2], 10, 64)
-	}
-	return la, nil
+	return LoadAvg{Load1: nums[0], Load5: nums[1], Load15: nums[2]}, nil
 }
 
 type MemInfo struct {
@@ -222,6 +217,34 @@ func parseMemInfo(output string) (MemInfo, error) {
 		}
 	}
 	return info, nil
+}
+
+func swapUsedPct(swapTotal, swapFree uint64) (float64, bool) {
+	if swapTotal == 0 {
+		return 0, false
+	}
+	return float64(swapTotal-swapFree) / float64(swapTotal) * 100, true
+}
+
+func (p *ProcfsCollector) getProcessCount(ctx context.Context, host Host) (int, error) {
+	output, err := p.execCommand(ctx, host, "ls /proc")
+	if err != nil {
+		return 0, err
+	}
+	return parseProcessCount(output)
+}
+
+func parseProcessCount(output string) (int, error) {
+	count := 0
+	for _, line := range strings.Split(output, "\n") {
+		if _, err := strconv.Atoi(strings.TrimSpace(line)); err == nil {
+			count++
+		}
+	}
+	if count == 0 {
+		return 0, fmt.Errorf("no numeric entries found in /proc listing")
+	}
+	return count, nil
 }
 
 type CPUStat struct {
