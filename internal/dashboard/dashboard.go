@@ -714,7 +714,14 @@ func (s *Server) handleAPIAlerts(w http.ResponseWriter, r *http.Request) {
 	// GET - list alerts
 	hostID := r.URL.Query().Get("host_id")
 	if hostID == "" {
-		http.Error(w, "host_id required", http.StatusBadRequest)
+		alerts, err := s.db.GetAllAlerts(r.Context())
+		if err != nil {
+			s.logger.Error("failed to get alerts", "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(alerts)
 		return
 	}
 

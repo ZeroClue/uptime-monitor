@@ -247,6 +247,48 @@ body {
     background: var(--down);
 }
 
+/* ---------- alert dots ---------- */
+.dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--down);
+    vertical-align: middle;
+}
+
+.dot.warning {
+    background: var(--warn);
+}
+
+.dot.critical {
+    background: var(--crit);
+}
+
+.dot.down {
+    background: var(--down);
+}
+
+/* ---------- count badges ---------- */
+.badge {
+    display: inline-block;
+    min-width: 18px;
+    padding: 1px 6px;
+    margin-left: 4px;
+    border-radius: 10px;
+    background: var(--bg-hover);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 10px;
+    text-align: center;
+    vertical-align: middle;
+}
+
+.seg-btn.active .badge {
+    background: rgba(0, 0, 0, 0.15);
+    color: var(--bg);
+}
+
 /* ---------- panels ---------- */
 .panel {
     background: var(--bg-panel);
