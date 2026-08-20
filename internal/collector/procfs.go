@@ -84,6 +84,7 @@ func (p *ProcfsCollector) Collect(ctx context.Context, host Host) ([]Sample, err
 	}
 
 	now := time.Now()
+	swapUsed := memInfo.SwapTotal - memInfo.SwapFree
 	samples := []Sample{
 		{HostID: host.ID, Metric: "cpu.load_1m", Value: loadAvg.Load1, Timestamp: now, Collector: "procfs"},
 		{HostID: host.ID, Metric: "cpu.load_5m", Value: loadAvg.Load5, Timestamp: now},
@@ -93,10 +94,30 @@ func (p *ProcfsCollector) Collect(ctx context.Context, host Host) ([]Sample, err
 		{HostID: host.ID, Metric: "mem.available_bytes", Value: float64(memInfo.Available), Timestamp: now},
 		{HostID: host.ID, Metric: "mem.used_bytes", Value: float64(memInfo.Total - memInfo.Available), Timestamp: now},
 		{HostID: host.ID, Metric: "mem.cached_bytes", Value: float64(memInfo.Cached), Timestamp: now},
+		{HostID: host.ID, Metric: "mem.swap_total_bytes", Value: float64(memInfo.SwapTotal), Timestamp: now},
+		{HostID: host.ID, Metric: "mem.swap_free_bytes", Value: float64(memInfo.SwapFree), Timestamp: now},
+		{HostID: host.ID, Metric: "mem.swap_used_bytes", Value: float64(swapUsed), Timestamp: now},
 		{HostID: host.ID, Metric: "disk.total_bytes", Value: float64(diskInfo.Total), Timestamp: now},
 		{HostID: host.ID, Metric: "disk.used_bytes", Value: float64(diskInfo.Used), Timestamp: now},
 		{HostID: host.ID, Metric: "disk.free_bytes", Value: float64(diskInfo.Free), Timestamp: now},
 		{HostID: host.ID, Metric: "uptime.seconds", Value: uptime, Timestamp: now},
+	}
+
+	if pct, ok := swapUsedPct(memInfo.SwapTotal, memInfo.SwapFree); ok {
+		samples = append(samples, Sample{
+			HostID: host.ID, Metric: "mem.swap_used_pct",
+			Value:     pct,
+			Timestamp: now,
+		})
+	}
+
+	procCount, err := p.getProcessCount(ctx, host)
+	if err == nil {
+		samples = append(samples, Sample{
+			HostID: host.ID, Metric: "system.process_count",
+			Value:     float64(procCount),
+			Timestamp: now,
+		})
 	}
 
 	if cpuStat != nil {
@@ -163,6 +184,8 @@ type MemInfo struct {
 	Free      uint64
 	Available uint64
 	Cached    uint64
+	SwapTotal uint64
+	SwapFree  uint64
 }
 
 func (p *ProcfsCollector) getMemInfo(ctx context.Context, host Host) (MemInfo, error) {
@@ -170,6 +193,10 @@ func (p *ProcfsCollector) getMemInfo(ctx context.Context, host Host) (MemInfo, e
 	if err != nil {
 		return MemInfo{}, err
 	}
+	return parseMemInfo(output)
+}
+
+func parseMemInfo(output string) (MemInfo, error) {
 	info := MemInfo{}
 	re := regexp.MustCompile(`(\w+):\s+(\d+)\s+kB`)
 	for _, match := range re.FindAllStringSubmatch(output, -1) {
@@ -183,9 +210,41 @@ func (p *ProcfsCollector) getMemInfo(ctx context.Context, host Host) (MemInfo, e
 			info.Available = val * 1024
 		case "Cached":
 			info.Cached = val * 1024
+		case "SwapTotal":
+			info.SwapTotal = val * 1024
+		case "SwapFree":
+			info.SwapFree = val * 1024
 		}
 	}
 	return info, nil
+}
+
+func swapUsedPct(swapTotal, swapFree uint64) (float64, bool) {
+	if swapTotal == 0 {
+		return 0, false
+	}
+	return float64(swapTotal-swapFree) / float64(swapTotal) * 100, true
+}
+
+func (p *ProcfsCollector) getProcessCount(ctx context.Context, host Host) (int, error) {
+	output, err := p.execCommand(ctx, host, "ls /proc")
+	if err != nil {
+		return 0, err
+	}
+	return parseProcessCount(output)
+}
+
+func parseProcessCount(output string) (int, error) {
+	count := 0
+	for _, line := range strings.Split(output, "\n") {
+		if _, err := strconv.Atoi(strings.TrimSpace(line)); err == nil {
+			count++
+		}
+	}
+	if count == 0 {
+		return 0, fmt.Errorf("no numeric entries found in /proc listing")
+	}
+	return count, nil
 }
 
 type CPUStat struct {

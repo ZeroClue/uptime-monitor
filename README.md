@@ -327,6 +327,19 @@ Then configure hosts with `connection: tailscale` and they'll route through the 
 | `GET /api/monitor` | Self-monitoring stats + collector status |
 | `GET /api/projects` | Project list with health status |
 
+### Collected Metrics
+
+Metrics are named `<namespace>.<metric>` and auto-discovered by the host detail API — new namespaces appear without dashboard changes.
+
+| Namespace | Metrics |
+|-----------|---------|
+| `cpu.*` | `user_pct`, `system_pct`, `idle_pct`, `iowait_pct`, `load_1m/5m/15m` |
+| `mem.*` | `total_bytes`, `used_bytes`, `free_bytes`, `available_bytes`, `cached_bytes`, `swap_total_bytes`, `swap_free_bytes`, `swap_used_bytes`, derived `swap_used_pct` |
+| `disk.*` | `total_bytes`, `used_bytes`, `free_bytes` |
+| `net.<iface>.*` | `rx_bytes`, `tx_bytes`, `rx_packets`, `tx_packets`, `errors` (displayed as per-second rates) |
+| `system.*` | `process_count` |
+| `uptime.seconds` | Seconds since boot (alerts support `below: true`) |
+
 ### Theming
 
 The dashboard defaults to a dark Grafana-style theme with a light option. The toggle (top-right) is persisted in `localStorage` and carries across the login/auth boundary. Charts re-read their colors from the active theme on toggle.

@@ -59,15 +59,16 @@ func buildPsutilCommand(host Host) string {
 	if host.Sudo {
 		sudo = "sudo "
 	}
-	return fmt.Sprintf("%spython3 -c \"import psutil, json, time; cpu = psutil.cpu_times_percent(interval=0.1); mem = psutil.virtual_memory(); disk = psutil.disk_usage('/'); net = psutil.net_io_counters(pernic=True); load = psutil.getloadavg(); uptime = psutil.boot_time(); print(json.dumps({'cpu': {'user': cpu.user, 'system': cpu.system, 'idle': cpu.idle, 'iowait': cpu.iowait, 'load1': load[0], 'load5': load[1], 'load15': load[2]}, 'mem': {'total': mem.total, 'used': mem.used, 'free': mem.free, 'available': mem.available, 'cached': mem.cached}, 'disk': {'total': disk.total, 'used': disk.used, 'free': disk.free}, 'net': {k: {'rx_bytes': v.bytes_recv, 'tx_bytes': v.bytes_sent, 'rx_packets': v.packets_recv, 'tx_packets': v.packets_sent, 'errors': v.errin + v.errout} for k, v in net.items()}, 'uptime': int(time.time() - uptime)}))\"", sudo)
+	return fmt.Sprintf("%spython3 -c \"import psutil, json, time; cpu = psutil.cpu_times_percent(interval=0.1); mem = psutil.virtual_memory(); swap = psutil.swap_memory(); disk = psutil.disk_usage('/'); net = psutil.net_io_counters(pernic=True); load = psutil.getloadavg(); procs = len(psutil.pids()); uptime = psutil.boot_time(); print(json.dumps({'cpu': {'user': cpu.user, 'system': cpu.system, 'idle': cpu.idle, 'iowait': cpu.iowait, 'load1': load[0], 'load5': load[1], 'load15': load[2]}, 'mem': {'total': mem.total, 'used': mem.used, 'free': mem.free, 'available': mem.available, 'cached': mem.cached, 'swap_total': swap.total, 'swap_free': swap.free, 'swap_used': swap.used}, 'disk': {'total': disk.total, 'used': disk.used, 'free': disk.free}, 'net': {k: {'rx_bytes': v.bytes_recv, 'tx_bytes': v.bytes_sent, 'rx_packets': v.packets_recv, 'tx_packets': v.packets_sent, 'errors': v.errin + v.errout} for k, v in net.items()}, 'uptime': int(time.time() - uptime), 'process_count': procs}))\"", sudo)
 }
 
 type PsutilOutput struct {
-	CPU    PsutilCPU            `json:"cpu"`
-	Mem    PsutilMem            `json:"mem"`
-	Disk   PsutilDisk           `json:"disk"`
-	Net    map[string]PsutilNet `json:"net"`
-	Uptime int                  `json:"uptime"`
+	CPU          PsutilCPU            `json:"cpu"`
+	Mem          PsutilMem            `json:"mem"`
+	Disk         PsutilDisk           `json:"disk"`
+	Net          map[string]PsutilNet `json:"net"`
+	Uptime       int                  `json:"uptime"`
+	ProcessCount int                  `json:"process_count"`
 }
 
 type PsutilCPU struct {
@@ -86,6 +87,9 @@ type PsutilMem struct {
 	Free      uint64 `json:"free"`
 	Available uint64 `json:"available"`
 	Cached    uint64 `json:"cached"`
+	SwapTotal uint64 `json:"swap_total"`
+	SwapFree  uint64 `json:"swap_free"`
+	SwapUsed  uint64 `json:"swap_used"`
 }
 
 type PsutilDisk struct {
@@ -117,10 +121,29 @@ func (p *PsutilCollector) convertToSamples(hostID int64, data PsutilOutput) []Sa
 		{HostID: hostID, Metric: "mem.free_bytes", Value: float64(data.Mem.Free), Timestamp: now},
 		{HostID: hostID, Metric: "mem.available_bytes", Value: float64(data.Mem.Available), Timestamp: now},
 		{HostID: hostID, Metric: "mem.cached_bytes", Value: float64(data.Mem.Cached), Timestamp: now},
+		{HostID: hostID, Metric: "mem.swap_total_bytes", Value: float64(data.Mem.SwapTotal), Timestamp: now},
+		{HostID: hostID, Metric: "mem.swap_free_bytes", Value: float64(data.Mem.SwapFree), Timestamp: now},
+		{HostID: hostID, Metric: "mem.swap_used_bytes", Value: float64(data.Mem.SwapUsed), Timestamp: now},
 		{HostID: hostID, Metric: "disk.total_bytes", Value: float64(data.Disk.Total), Timestamp: now},
 		{HostID: hostID, Metric: "disk.used_bytes", Value: float64(data.Disk.Used), Timestamp: now},
 		{HostID: hostID, Metric: "disk.free_bytes", Value: float64(data.Disk.Free), Timestamp: now},
 		{HostID: hostID, Metric: "uptime.seconds", Value: float64(data.Uptime), Timestamp: now},
+	}
+
+	if pct, ok := swapUsedPct(data.Mem.SwapTotal, data.Mem.SwapFree); ok {
+		samples = append(samples, Sample{
+			HostID: hostID, Metric: "mem.swap_used_pct",
+			Value:     pct,
+			Timestamp: now,
+		})
+	}
+
+	if data.ProcessCount > 0 {
+		samples = append(samples, Sample{
+			HostID: hostID, Metric: "system.process_count",
+			Value:     float64(data.ProcessCount),
+			Timestamp: now,
+		})
 	}
 
 	for iface, net := range data.Net {

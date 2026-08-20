@@ -69,3 +69,60 @@ func TestParseCPUStat_NoCpuLine(t *testing.T) {
 		t.Fatal("expected error for missing cpu line")
 	}
 }
+
+func TestParseMemInfo_SwapFields(t *testing.T) {
+	output := "MemTotal:       16384000 kB\nMemFree:         1024000 kB\nMemAvailable:     8192000 kB\nSwapTotal:       2097152 kB\nSwapFree:        1048576 kB\n"
+	info, err := parseMemInfo(output)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.SwapTotal != 2097152*1024 {
+		t.Errorf("SwapTotal = %d, want %d", info.SwapTotal, 2097152*1024)
+	}
+	if info.SwapFree != 1048576*1024 {
+		t.Errorf("SwapFree = %d, want %d", info.SwapFree, 1048576*1024)
+	}
+}
+
+func TestParseMemInfo_MissingSwap(t *testing.T) {
+	info, err := parseMemInfo("MemTotal:       1000 kB\n")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.SwapTotal != 0 || info.SwapFree != 0 {
+		t.Errorf("expected zero swap fields, got %+v", info)
+	}
+}
+
+func TestSwapUsedPct(t *testing.T) {
+	pct, ok := swapUsedPct(2097152*1024, 1048576*1024)
+	if !ok {
+		t.Fatal("expected ok for host with swap")
+	}
+	if pct != 50 {
+		t.Errorf("pct = %v, want 50", pct)
+	}
+}
+
+func TestSwapUsedPct_NoSwap(t *testing.T) {
+	if _, ok := swapUsedPct(0, 0); ok {
+		t.Fatal("expected not-ok for host with no swap")
+	}
+}
+
+func TestParseProcessCount(t *testing.T) {
+	output := "1\n10\ncpuinfo\nmeminfo\nself\nthread-self\n1234\n"
+	got, err := parseProcessCount(output)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != 3 {
+		t.Errorf("count = %d, want 3 (pids 1, 10, 1234)", got)
+	}
+}
+
+func TestParseProcessCount_NoPids(t *testing.T) {
+	if _, err := parseProcessCount("cpuinfo\nmeminfo\n"); err == nil {
+		t.Fatal("expected error when no pid entries present")
+	}
+}
