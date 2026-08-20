@@ -98,8 +98,8 @@
     function renderChart(canvasId, title, series) {
         const canvas = document.getElementById(canvasId);
         if (!canvas) return;
-        if (charts[canvasId]) { charts[canvasId].destroy(); delete charts[canvasId]; }
         if (!series.length) {
+            if (charts[canvasId]) { charts[canvasId].destroy(); delete charts[canvasId]; }
             canvas.parentElement.innerHTML = '<div class="empty">No data in range</div>';
             return;
         }
@@ -115,6 +115,13 @@
             pointRadius: 0,
             borderWidth: 1.5
         }));
+        if (charts[canvasId]) {
+            const c = charts[canvasId];
+            c.data.labels = labels;
+            c.data.datasets = datasets;
+            c.update();
+            return;
+        }
         charts[canvasId] = new Chart(canvas.getContext('2d'), {
             type: 'line',
             data: { labels, datasets },
@@ -123,33 +130,40 @@
     }
 
     function buildNetPanel() {
-        let existing = document.getElementById('netPanel');
-        if (existing) existing.remove();
-
         netInterfaces = groupNetByInterface(allMetrics);
         const names = Object.keys(netInterfaces);
-        if (!names.length) return;
 
-        const panel = document.createElement('div');
-        panel.className = 'panel';
-        panel.id = 'netPanel';
-        panel.innerHTML = '<div class="panel-head"><h3>Network</h3><select id="netIface"></select></div><div class="chart-container"><canvas id="netChart"></canvas></div>';
-        document.getElementById('charts').appendChild(panel);
+        let panel = document.getElementById('netPanel');
+        if (!names.length) {
+            if (panel) panel.remove();
+            return;
+        }
+
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.className = 'panel';
+            panel.id = 'netPanel';
+            panel.innerHTML = '<div class="panel-head"><h3>Network</h3><select id="netIface"></select></div><div class="chart-container"><canvas id="netChart"></canvas></div>';
+            document.getElementById('charts').appendChild(panel);
+        }
 
         const select = document.getElementById('netIface');
+        const previous = select.value;
         const isVirtual = n => /^(veth|br-|docker|virbr|lo)/.test(n);
         const sorted = names.sort((a, b) => {
             const ap = isVirtual(a) ? 1 : 0;
             const bp = isVirtual(b) ? 1 : 0;
             return ap - bp || a.localeCompare(b);
         });
+        select.innerHTML = '';
         sorted.forEach(n => {
             const opt = document.createElement('option');
             opt.value = n;
             opt.textContent = n;
             select.appendChild(opt);
         });
-        select.value = pickDefaultInterface(netInterfaces) || sorted[0];
+        if (sorted.includes(previous)) select.value = previous;
+        else select.value = pickDefaultInterface(netInterfaces) || sorted[0];
         select.onchange = function () { renderNetChart(this.value); };
         renderNetChart(select.value);
     }
@@ -191,13 +205,17 @@
 
     function panelFor(title, canvasId, series) {
         let panel = document.getElementById(canvasId + 'Panel');
-        if (panel) panel.remove();
-        if (!series.length) return;
-        panel = document.createElement('div');
-        panel.className = 'panel';
-        panel.id = canvasId + 'Panel';
-        panel.innerHTML = '<div class="panel-head"><h3>' + title + '</h3><span class="panel-value" id="' + canvasId + 'Value"></span></div><div class="chart-container"><canvas id="' + canvasId + '"></canvas></div>';
-        document.getElementById('charts').appendChild(panel);
+        if (!series.length) {
+            if (panel) panel.remove();
+            return;
+        }
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.className = 'panel';
+            panel.id = canvasId + 'Panel';
+            panel.innerHTML = '<div class="panel-head"><h3>' + title + '</h3><span class="panel-value" id="' + canvasId + 'Value"></span></div><div class="chart-container"><canvas id="' + canvasId + '"></canvas></div>';
+            document.getElementById('charts').appendChild(panel);
+        }
         renderChart(canvasId, title, series);
         const ro = pickReadout(series);
         const el = document.getElementById(canvasId + 'Value');
@@ -233,7 +251,6 @@
         const timeRange = document.getElementById('timeRange').value;
         const resolution = document.getElementById('resolution').value;
         const url = '/api/host/' + HOST_ID + '/metrics?timeRange=' + timeRange + '&resolution=' + resolution;
-        document.getElementById('loading').style.display = 'block';
         fetch(url, { headers: { 'Accept': 'application/json' } })
             .then(r => {
                 if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -241,13 +258,17 @@
             })
             .then(data => {
                 allMetrics = data.metrics || {};
-                document.getElementById('loading').style.display = 'none';
+                const loading = document.getElementById('loading');
+                if (loading) loading.remove();
                 renderPanels();
                 updateUptimeLabel();
             })
             .catch(err => {
-                document.getElementById('loading').textContent = 'Failed to load metrics: ' + err.message;
-                document.getElementById('loading').className = 'error';
+                const loading = document.getElementById('loading');
+                if (loading) {
+                    loading.textContent = 'Failed to load metrics: ' + err.message;
+                    loading.className = 'error';
+                }
             });
     }
 
@@ -262,6 +283,19 @@
         label.textContent = 'Uptime: ' + (d > 0 ? d + 'd ' : '') + h + 'h ' + m + 'm';
     }
 
-    document.addEventListener('DOMContentLoaded', loadMetrics);
+    let refreshTimer = null;
+
+    function startRefresh() {
+        clearInterval(refreshTimer);
+        refreshTimer = setInterval(() => {
+            if (document.hidden) return;
+            loadMetrics();
+        }, 30000);
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        loadMetrics();
+        startRefresh();
+    });
 </script>
 {{end}}
