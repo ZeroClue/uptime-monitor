@@ -401,8 +401,10 @@ func (s *Server) handleAPIHostsStatus(w http.ResponseWriter, r *http.Request) {
 		}
 
 		ctx := r.Context()
-		if idle, err := s.db.GetLatestSample(ctx, h.ID, "cpu.idle_pct"); err == nil && idle != nil {
-			cpu := 100 - idle.Value
+		user, err1 := s.db.GetLatestSample(ctx, h.ID, "cpu.user_pct")
+		system, err2 := s.db.GetLatestSample(ctx, h.ID, "cpu.system_pct")
+		if err1 == nil && err2 == nil && user != nil && system != nil {
+			cpu := user.Value + system.Value
 			summary.CPU = &cpu
 		}
 		used, err1 := s.db.GetLatestSample(ctx, h.ID, "mem.used_bytes")

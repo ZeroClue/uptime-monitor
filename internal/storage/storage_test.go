@@ -86,6 +86,62 @@ func TestDB_SaveAndGetSamples(t *testing.T) {
 	}
 }
 
+func TestDB_GetLatestSample(t *testing.T) {
+	tmpDir := t.TempDir()
+	db, err := New(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to create DB: %v", err)
+	}
+	defer db.Close()
+
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("migration failed: %v", err)
+	}
+
+	hosts := []config.Host{
+		{Name: "test-host", Connection: "ssh", Endpoint: "10.0.0.1", User: "test", KeyPath: "/keys/test", Port: 22, Sudo: false, Timeout: 10 * time.Second},
+	}
+	if err := db.SeedHosts(hosts); err != nil {
+		t.Fatalf("seed hosts failed: %v", err)
+	}
+
+	retrieved, _ := db.GetHosts()
+	hostID := retrieved[0].ID
+
+	base := time.Now().Add(-time.Minute)
+	samples := []collector.Sample{
+		{HostID: hostID, Metric: "cpu.user_pct", Value: 10.0, Timestamp: base, Collector: "procfs"},
+		{HostID: hostID, Metric: "cpu.user_pct", Value: 20.0, Timestamp: base.Add(30 * time.Second), Collector: "procfs"},
+		{HostID: hostID, Metric: "cpu.user_pct", Value: 30.0, Timestamp: base.Add(60 * time.Second), Collector: "procfs"},
+	}
+	if err := db.SaveSamples(samples); err != nil {
+		t.Fatalf("save samples failed: %v", err)
+	}
+
+	latest, err := db.GetLatestSample(context.Background(), hostID, "cpu.user_pct")
+	if err != nil {
+		t.Fatalf("get latest sample failed: %v", err)
+	}
+	if latest == nil {
+		t.Fatal("expected a latest sample, got nil")
+	}
+	if latest.Value != 30.0 {
+		t.Errorf("expected latest value 30.0, got %v", latest.Value)
+	}
+	if latest.Metric != "cpu.user_pct" {
+		t.Errorf("expected metric cpu.user_pct, got %q", latest.Metric)
+	}
+
+	// unknown metric -> nil, no error
+	none, err := db.GetLatestSample(context.Background(), hostID, "does.not.exist")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if none != nil {
+		t.Errorf("expected nil for unknown metric, got %+v", none)
+	}
+}
+
 func TestDB_Downsample(t *testing.T) {
 	tmpDir := t.TempDir()
 	db, err := New(tmpDir)

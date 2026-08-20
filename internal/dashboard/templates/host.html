@@ -7,7 +7,7 @@
 <div class="meta">{{.Connection}}://{{.Endpoint}}:{{.Port}} · User: {{.User}} · Tags: {{range .Tags}}<span class="tag">{{.}}</span>{{end}}</div>
 <div class="controls">
     <label for="timeRange">Time range</label>
-    <select id="timeRange" onchange="loadMetrics()">
+    <select id="timeRange" onchange="onControlChange()">
         <option value="1h">Last hour</option>
         <option value="6h" selected>Last 6 hours</option>
         <option value="24h">Last 24 hours</option>
@@ -15,7 +15,7 @@
         <option value="30d">Last 30 days</option>
     </select>
     <label for="resolution">Resolution</label>
-    <select name="resolution" id="resolution" onchange="loadMetrics()">
+    <select name="resolution" id="resolution" onchange="onControlChange()">
         <option value="raw">Raw (30s)</option>
         <option value="1m" selected>1 minute</option>
         <option value="1h">1 hour</option>
@@ -98,11 +98,21 @@
     function renderChart(canvasId, title, series) {
         const canvas = document.getElementById(canvasId);
         if (!canvas) return;
+        const container = canvas.parentElement;
+        let emptyMsg = container.querySelector('.empty');
         if (!series.length) {
             if (charts[canvasId]) { charts[canvasId].destroy(); delete charts[canvasId]; }
-            canvas.parentElement.innerHTML = '<div class="empty">No data in range</div>';
+            canvas.style.display = 'none';
+            if (!emptyMsg) {
+                emptyMsg = document.createElement('div');
+                emptyMsg.className = 'empty';
+                emptyMsg.textContent = 'No data in range';
+                container.appendChild(emptyMsg);
+            }
             return;
         }
+        canvas.style.display = '';
+        if (emptyMsg) emptyMsg.remove();
         const colors = palette();
         const labels = labelsFrom(series[0].data);
         const datasets = series.map((s, i) => ({
@@ -285,6 +295,20 @@
 
     let refreshTimer = null;
 
+    function syncUrl() {
+        const timeRange = document.getElementById('timeRange').value;
+        const resolution = document.getElementById('resolution').value;
+        const params = new URLSearchParams();
+        params.set('timeRange', timeRange);
+        params.set('resolution', resolution);
+        history.replaceState(null, '', '/host/' + HOST_ID + '?' + params.toString());
+    }
+
+    function onControlChange() {
+        syncUrl();
+        loadMetrics();
+    }
+
     function startRefresh() {
         clearInterval(refreshTimer);
         refreshTimer = setInterval(() => {
@@ -294,6 +318,11 @@
     }
 
     document.addEventListener('DOMContentLoaded', function () {
+        const params = new URLSearchParams(window.location.search);
+        const pRange = params.get('timeRange');
+        const pRes = params.get('resolution');
+        if (pRange) document.getElementById('timeRange').value = pRange;
+        if (pRes) document.getElementById('resolution').value = pRes;
         loadMetrics();
         startRefresh();
     });

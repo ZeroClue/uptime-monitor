@@ -38,13 +38,14 @@
     }
 
     function renderCounts() {
-        const counts = { all: alerts.length, warning: 0, critical: 0, down: 0 };
-        alerts.forEach(a => counts[severityOf(a)]++);
+        const active = alerts.filter(a => !a.AcknowledgedAt);
+        const counts = { all: active.length, warning: 0, critical: 0, down: 0 };
+        active.forEach(a => counts[severityOf(a)]++);
         document.querySelectorAll('.badge').forEach(b => {
             const k = b.getAttribute('data-badge');
             b.textContent = counts[k] || '';
         });
-        document.getElementById('alertCount').textContent = alerts.length + ' active';
+        document.getElementById('alertCount').textContent = active.length + ' active';
     }
 
     function render() {

@@ -48,6 +48,13 @@ internal/dashboard/
 - Fixes today's `ParseGlob("internal/dashboard/templates/*.html")` relative-path fragility (binary breaks when run outside repo root).
 - Static served at `/static/...` via `http.FileServer` wrapped in the auth middleware.
 
+## Resolved Deviations (during implementation)
+
+These were decided during implementation and override the lines above where they conflict:
+
+- **`/static/` is served WITHOUT auth middleware** (contradicts line 49). The login page is pre-auth and must load `app.css`/`app.js` to render; the static files contain only CSS/JS/Chart.js (no data). All data-bearing routes remain behind auth. Rationale: an auth-wrapped static route would force the login page to inline all styles/scripts.
+- **Default theme is strictly dark; `prefers-color-scheme` is NOT honored for the initial value** (contradicts line 87's "honors prefers-color-scheme before first manual choice"). The requirement "default dark" plus the chosen visual direction (Grafana-style dark) take precedence; OS preference only becomes relevant if a user explicitly toggles. `color-scheme`/`theme-color` still adapt per active theme.
+
 ## Design System & Theming
 
 ### Palette (Nord-inspired, curated)

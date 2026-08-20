@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Dashboard redesign (issue #20)** — Grafana-style dark/light theme with persisted toggle, shared base layout, and themed charts across all pages
+- **Host list** — dense sortable table (default) with live CPU/MEM/Uptime values + compact tiles toggle; deep-linkable `?view=table|tiles`, 30s auto-refresh
+- **Host detail panels** — CPU / Load / Memory / Disk / Network each in a themed panel with live current-value readout; 30s in-place chart refresh (no rebuild), paused when tab hidden
+- **Compare table** — per-host last-value table below the chart; selections deep-link via query params
+- **Alerts filtering** — All / Warning / Critical / Down segmented filter with count badges; 60s auto-refresh
+- **Monitor page** — stats readouts (DB size, host count, interval) + collector status table, 30s auto-refresh
+- **Embedded assets** — templates and static files (CSS, JS, vendored Chart.js) shipped via `go:embed`; no CDN dependencies
+- **New JSON endpoints** — `/api/hosts/status` (live per-host values), `/api/monitor` (self-monitoring stats), `/api/alerts` GET without `host_id` (all alerts)
 - **Uptime label on host page** — shows "Uptime: Xd Yh Zm" from `uptime.seconds`
 - **Interface picker on host pages** — defaults to `eth0`, hides virtual interfaces (veth/br/docker)
 - **Per-second network rates** — `net.*.rx_bytes`/`tx_bytes` cumulative counters converted to rates (host charts client-side, compare + API server-side via `toRateSeries`)
@@ -46,7 +54,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **Metrics API** — `/api/host/:id/metrics` and `/api/host/:id/metric/:metric` now accept `timeRange` and `resolution` query params; `/api/compare` accepts `metric`, `hosts`, `timeRange`, `resolution`
-- **Dashboard rendering** — Chart.js draws from client-fetched JSON instead of HTMX partial fragments
+- **Dashboard rendering** — Chart.js draws from client-fetched JSON instead of HTMX partial fragments; htmx removed entirely, shared `base.html` layout with embedded assets
+- **Themes** — default dark with light option, persisted across sessions and the login/auth boundary
 - **Go version pinned to 1.22** in CI, Dockerfile, and `go.mod` (was 1.25.0)
 - **CI simplified** — removed golangci-lint (incompatible with Go 1.25 runner), rely on `go vet` + `go fmt` + tests
 - **Dockerfile updated** to use `golang:1.22-alpine` builder
@@ -55,7 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Collector chain** — PsutilCollector → ProcfsCollector → TailscaleCollector fallback (ADR-0001)
 - **Storage** — 6 focused domain stores with explicit interfaces (HostStore, SampleStore, AlertStore, ProjectStore, Downsampler, Cleanup)
 - **Scheduler** — background downsampling (minute) and cleanup (daily) tickers
-- **Dashboard** — Chart.js client-side charts fed by the `/api/host/:id/metrics` and `/api/host/:id/metric/:metric` JSON endpoints
+- **Dashboard** — Chart.js client-side charts fed by the `/api/host/:id/metrics` and `/api/host/:id/metric/:metric` JSON endpoints; templates + static assets embedded via `go:embed`
 
 ## [0.1.0] - 2026-08-15
 

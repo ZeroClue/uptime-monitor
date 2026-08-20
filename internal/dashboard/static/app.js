@@ -92,6 +92,18 @@
                     instance.options.scales.y.ticks.color = cssVar('--text-dim');
                     instance.options.scales.x.grid.color = cssVar('--border');
                     instance.options.scales.y.grid.color = cssVar('--border');
+                    // re-read series palette so dataset colors follow the new theme
+                    const colors = [
+                        cssVar('--series-1'), cssVar('--series-2'), cssVar('--series-3'),
+                        cssVar('--series-4'), cssVar('--series-5'), cssVar('--series-6'),
+                        cssVar('--accent'), cssVar('--ok'), cssVar('--warn'), cssVar('--crit')
+                    ].filter(Boolean);
+                    (instance.data.datasets || []).forEach(function (ds, i) {
+                        if (colors.length) {
+                            ds.borderColor = colors[i % colors.length];
+                            ds.backgroundColor = colors[i % colors.length] + '22';
+                        }
+                    });
                     instance.update();
                 });
             }
