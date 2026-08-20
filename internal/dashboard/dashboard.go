@@ -91,6 +91,7 @@ func (s *Server) Run(ctx context.Context) {
 	mux.HandleFunc("/api/host/", s.authMiddleware(s.handleAPIHost))
 	mux.HandleFunc("/api/compare", s.authMiddleware(s.handleAPICompare))
 	mux.HandleFunc("/api/alerts", s.authMiddleware(s.handleAPIAlerts))
+	mux.HandleFunc("/api/monitor", s.authMiddleware(s.handleAPIMonitor))
 	if s.static != nil {
 		mux.Handle("/static/", s.static)
 	}
@@ -677,6 +678,42 @@ func (s *Server) handleAPICompare(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"labels": labels,
 		"series": series,
+	})
+}
+
+func (s *Server) handleAPIMonitor(w http.ResponseWriter, r *http.Request) {
+	statuses := s.sched.GetAllHostStatuses()
+	hosts, _ := s.db.GetHosts()
+
+	type hostStatusInfo struct {
+		HostID           int64  `json:"host_id"`
+		Name             string `json:"name"`
+		LastCollector    string `json:"last_collector"`
+		LastSuccess      string `json:"last_success"`
+		ConsecutiveFails int    `json:"consecutive_fails"`
+		LastError        string `json:"last_error"`
+	}
+
+	result := make([]hostStatusInfo, 0, len(hosts))
+	for _, h := range hosts {
+		info := hostStatusInfo{HostID: h.ID, Name: h.Name}
+		if st, ok := statuses[h.ID]; ok {
+			info.LastCollector = st.LastCollector
+			info.LastSuccess = ""
+			if !st.LastSuccess.IsZero() {
+				info.LastSuccess = st.LastSuccess.Format("2006-01-02 15:04:05")
+			}
+			info.ConsecutiveFails = st.ConsecutiveFails
+			info.LastError = st.LastError
+		}
+		result = append(result, info)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"db_size_mb": s.db.DBSizeMB(),
+		"hosts":      result,
+		"interval":   "30s",
 	})
 }
 

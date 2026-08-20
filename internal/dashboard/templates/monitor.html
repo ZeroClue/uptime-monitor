@@ -2,38 +2,80 @@
 {{define "content"}}
 <div class="header">
     <h1>Self-Monitoring</h1>
+    <span class="last-updated mono" id="lastUpdated">—</span>
 </div>
-<div class="grid">
-    <div class="card">
-        <h2 class="card-title" style="margin:0 0 12px;">Overall</h2>
-        <div class="metric"><span class="metric-label">Database Size</span><span class="metric-value mono">{{printf "%.2f" .DBSize}} MB</span></div>
-        <div class="metric"><span class="metric-label">Total Hosts</span><span class="metric-value mono">{{len .Hosts}}</span></div>
-        <div class="metric"><span class="metric-label">Polling Interval</span><span class="metric-value mono">30s</span></div>
+<div class="stats-row">
+    <div class="stat">
+        <div class="stat-value mono" id="dbSize">—</div>
+        <div class="stat-label">Database Size</div>
     </div>
-    <div class="card">
-        <h2 class="card-title" style="margin:0 0 12px;">Host Collector Status</h2>
-        <table class="data-table">
-            <thead><tr><th>Host</th><th>Last Collector</th><th>Last Success</th><th>Consecutive Fails</th><th>Last Error</th></tr></thead>
-            <tbody>
-                {{range .Hosts}}
-                {{$host := .}}
-                {{with index $.Statuses .ID}}
-                <tr>
-                    <td>{{$host.Name}}</td>
-                    <td class="mono">{{.LastCollector}}</td>
-                    <td>{{if .LastSuccess.IsZero}}Never{{else}}{{.LastSuccess.Format "15:04:05"}}{{end}}</td>
-                    <td class="num"><span class="status {{if eq .ConsecutiveFails 0}}ok{{else if lt .ConsecutiveFails 3}}warning{{else}}down{{end}}">{{.ConsecutiveFails}}</span></td>
-                    <td>{{.LastError}}</td>
-                </tr>
-                {{else}}
-                <tr>
-                    <td>{{$host.Name}}</td>
-                    <td colspan="4" class="status down">No status data</td>
-                </tr>
-                {{end}}
-                {{end}}
-            </tbody>
-        </table>
+    <div class="stat">
+        <div class="stat-value mono" id="hostCount">—</div>
+        <div class="stat-label">Total Hosts</div>
+    </div>
+    <div class="stat">
+        <div class="stat-value mono" id="interval">—</div>
+        <div class="stat-label">Polling Interval</div>
     </div>
 </div>
+<table class="data-table">
+    <thead><tr><th>Host</th><th>Last Collector</th><th>Last Success</th><th>Consecutive Fails</th><th>Last Error</th></tr></thead>
+    <tbody id="monitorRows"></tbody>
+</table>
+<script>
+    function statusClass(fails) {
+        if (fails === 0) return 'ok';
+        if (fails < 3) return 'warning';
+        return 'down';
+    }
+
+    function statusLabel(fails) {
+        if (fails === 0) return 'OK';
+        if (fails < 3) return 'WARN';
+        return 'DOWN';
+    }
+
+    function fetchMonitor() {
+        return fetch('/api/monitor', { headers: { 'Accept': 'application/json' } })
+            .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+            .then(data => {
+                document.getElementById('dbSize').textContent = data.db_size_mb.toFixed(2) + ' MB';
+                document.getElementById('hostCount').textContent = data.hosts.length;
+                document.getElementById('interval').textContent = data.interval || '30s';
+                const tbody = document.getElementById('monitorRows');
+                if (!data.hosts.length) {
+                    tbody.innerHTML = '<tr><td colspan="5">No hosts configured</td></tr>';
+                } else {
+                    tbody.innerHTML = data.hosts.map(h => {
+                        const sc = statusClass(h.consecutive_fails);
+                        const row = '<td>' + h.name + '</td>' +
+                            '<td class="mono">' + (h.last_collector || '—') + '</td>' +
+                            '<td>' + (h.last_success || 'Never') + '</td>' +
+                            '<td><span class="status ' + sc + '">' + statusLabel(h.consecutive_fails) + ' (' + h.consecutive_fails + ')</span></td>' +
+                            '<td>' + (h.last_error || '—') + '</td>';
+                        return '<tr>' + row + '</tr>';
+                    }).join('');
+                }
+                document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString();
+            })
+            .catch(err => {
+                document.getElementById('lastUpdated').textContent = 'refresh failed: ' + err.message;
+            });
+    }
+
+    let refreshTimer = null;
+
+    function startRefresh() {
+        clearInterval(refreshTimer);
+        refreshTimer = setInterval(() => {
+            if (document.hidden) return;
+            fetchMonitor();
+        }, 30000);
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        fetchMonitor();
+        startRefresh();
+    });
+</script>
 {{end}}
