@@ -55,7 +55,7 @@ func NewServer(password string, db *storage.DB, sched *scheduler.Scheduler, logg
 }
 
 func (s *Server) loadTemplates() {
-	pages := []string{"index", "host", "compare", "projects", "alerts", "monitor"}
+	pages := []string{"index", "host", "compare", "projects", "alerts", "monitor", "alerts_history", "alerts_config"}
 	tmpls := make(map[string]*template.Template, len(pages)+1)
 	for _, p := range pages {
 		t, err := template.ParseFS(embeddedFiles, "templates/base.html", "templates/"+p+".html")
