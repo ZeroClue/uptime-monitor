@@ -51,3 +51,30 @@ func TestConvertToSamples_NoSwap_OmitsPct(t *testing.T) {
 		}
 	}
 }
+
+func TestConvertToSamples_PerCoreCPU(t *testing.T) {
+	data := PsutilOutput{
+		Cores: map[string]PsutilCPU{
+			"1": {User: 30, System: 10, Idle: 50, Iowait: 10},
+			"0": {User: 20, System: 20, Idle: 50, Iowait: 10},
+		},
+	}
+
+	p := &PsutilCollector{}
+	samples := p.convertToSamples(1, data)
+
+	got := map[string]float64{}
+	for _, s := range samples {
+		got[s.Metric] = s.Value
+	}
+
+	if v := got["cpu.core.0.user_pct"]; v != 20 {
+		t.Errorf("core 0 user_pct = %v, want 20", v)
+	}
+	if v := got["cpu.core.1.system_pct"]; v != 10 {
+		t.Errorf("core 1 system_pct = %v, want 10", v)
+	}
+	if v := got["cpu.core.0.idle_pct"]; v != 50 {
+		t.Errorf("core 0 idle_pct = %v, want 50", v)
+	}
+}

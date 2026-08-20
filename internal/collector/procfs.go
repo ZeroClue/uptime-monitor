@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -63,9 +64,14 @@ func (p *ProcfsCollector) Collect(ctx context.Context, host Host) ([]Sample, err
 		return nil, fmt.Errorf("failed to get meminfo: %w", err)
 	}
 
-	cpuStat, err := p.getCPUStat(ctx, host)
+	cpuStatOut, err := p.getCPUStat(ctx, host)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cpu stat: %w", err)
+	}
+
+	cpuStat, err := parseCPUStat(cpuStatOut)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse cpu stat: %w", err)
 	}
 
 	diskInfo, err := p.getDiskInfo(ctx, host)
@@ -128,6 +134,22 @@ func (p *ProcfsCollector) Collect(ctx context.Context, host Host) ([]Sample, err
 				Sample{HostID: host.ID, Metric: "cpu.system_pct", Value: float64(cpuStat.System) / float64(total) * 100, Timestamp: now},
 				Sample{HostID: host.ID, Metric: "cpu.idle_pct", Value: float64(cpuStat.Idle) / float64(total) * 100, Timestamp: now},
 				Sample{HostID: host.ID, Metric: "cpu.iowait_pct", Value: float64(cpuStat.Iowait) / float64(total) * 100, Timestamp: now},
+			)
+		}
+	}
+
+	if perCore, err := parsePerCoreCPU(cpuStatOut); err == nil {
+		for _, core := range sortedCoreIDs(perCore) {
+			stat := perCore[core]
+			total := stat.User + stat.System + stat.Idle + stat.Iowait + stat.Nice + stat.Softirq + stat.Steal
+			if total == 0 {
+				continue
+			}
+			samples = append(samples,
+				Sample{HostID: host.ID, Metric: fmt.Sprintf("cpu.core.%d.user_pct", core), Value: float64(stat.User) / float64(total) * 100, Timestamp: now},
+				Sample{HostID: host.ID, Metric: fmt.Sprintf("cpu.core.%d.system_pct", core), Value: float64(stat.System) / float64(total) * 100, Timestamp: now},
+				Sample{HostID: host.ID, Metric: fmt.Sprintf("cpu.core.%d.idle_pct", core), Value: float64(stat.Idle) / float64(total) * 100, Timestamp: now},
+				Sample{HostID: host.ID, Metric: fmt.Sprintf("cpu.core.%d.iowait_pct", core), Value: float64(stat.Iowait) / float64(total) * 100, Timestamp: now},
 			)
 		}
 	}
@@ -259,12 +281,12 @@ type CPUStat struct {
 	GuestNice uint64
 }
 
-func (p *ProcfsCollector) getCPUStat(ctx context.Context, host Host) (*CPUStat, error) {
+func (p *ProcfsCollector) getCPUStat(ctx context.Context, host Host) (string, error) {
 	output, err := p.execCommand(ctx, host, "cat /proc/stat")
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	return parseCPUStat(output)
+	return output, nil
 }
 
 func parseCPUStat(output string) (*CPUStat, error) {
@@ -306,6 +328,49 @@ func parseCPUStat(output string) (*CPUStat, error) {
 		Guest:     parse(8),
 		GuestNice: parse(9),
 	}, nil
+}
+
+func parsePerCoreCPU(output string) (map[int]CPUStat, error) {
+	cores := make(map[int]CPUStat)
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 8 || !strings.HasPrefix(fields[0], "cpu") {
+			continue
+		}
+		idx, err := strconv.Atoi(strings.TrimPrefix(fields[0], "cpu"))
+		if err != nil {
+			continue
+		}
+		parse := func(i int) uint64 {
+			if i >= len(fields) {
+				return 0
+			}
+			v, _ := strconv.ParseUint(fields[i], 10, 64)
+			return v
+		}
+		cores[idx] = CPUStat{
+			User:    parse(1),
+			Nice:    parse(2),
+			System:  parse(3),
+			Idle:    parse(4),
+			Iowait:  parse(5),
+			Softirq: parse(6),
+			Steal:   parse(7),
+		}
+	}
+	if len(cores) == 0 {
+		return nil, fmt.Errorf("no per-core cpu lines found in /proc/stat")
+	}
+	return cores, nil
+}
+
+func sortedCoreIDs(cores map[int]CPUStat) []int {
+	ids := make([]int, 0, len(cores))
+	for id := range cores {
+		ids = append(ids, id)
+	}
+	sort.Ints(ids)
+	return ids
 }
 
 type DiskInfo struct {

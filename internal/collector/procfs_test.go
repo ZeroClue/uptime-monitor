@@ -70,6 +70,37 @@ func TestParseCPUStat_NoCpuLine(t *testing.T) {
 	}
 }
 
+func TestParsePerCoreCPU(t *testing.T) {
+	output := "cpu  100 20 30 40 10 5 2\n" +
+		"cpu0 50 10 10 20 5 2 1\n" +
+		"cpu1 50 10 20 20 5 3 1\n" +
+		"intr 12345\n"
+	cores, err := parsePerCoreCPU(output)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(cores) != 2 {
+		t.Fatalf("got %d cores, want 2", len(cores))
+	}
+	if cores[0].User != 50 || cores[1].Idle != 20 {
+		t.Errorf("unexpected cores: %+v", cores)
+	}
+}
+
+func TestParsePerCoreCPU_NoCores(t *testing.T) {
+	if _, err := parsePerCoreCPU("cpu  100 20 30 40\n"); err == nil {
+		t.Fatal("expected error when no per-core lines present")
+	}
+}
+
+func TestSortedCoreIDs(t *testing.T) {
+	cores := map[int]CPUStat{2: {}, 0: {}, 1: {}}
+	got := sortedCoreIDs(cores)
+	if got[0] != 0 || got[1] != 1 || got[2] != 2 {
+		t.Errorf("unsorted core ids: %v", got)
+	}
+}
+
 func TestParseMemInfo_SwapFields(t *testing.T) {
 	output := "MemTotal:       16384000 kB\nMemFree:         1024000 kB\nMemAvailable:     8192000 kB\nSwapTotal:       2097152 kB\nSwapFree:        1048576 kB\n"
 	info, err := parseMemInfo(output)
