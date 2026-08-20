@@ -12,6 +12,7 @@
         .controls { background: white; padding: 15px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         .controls select, .controls input { padding: 8px 12px; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; }
         .chart-container { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); height: 400px; }
+        .empty { color: #666; text-align: center; padding: 120px 0; }
     </style>
 </head>
 <body>
@@ -21,29 +22,27 @@
     </div>
     <div class="controls">
         <label>Metric: </label>
-        <select id="metric" hx-get="/api/compare" hx-target="#chart" hx-include="[name='hosts'],[name='timeRange'],[name='resolution']" hx-trigger="change">
+        <select id="metric">
             <option value="cpu.user_pct">CPU User %</option>
             <option value="cpu.system_pct">CPU System %</option>
             <option value="cpu.idle_pct">CPU Idle %</option>
             <option value="cpu.load_1m">Load 1m</option>
             <option value="mem.used_pct">Memory Used %</option>
             <option value="disk.used_pct">Disk Used %</option>
-            <option value="net.eth0.rx_bytes">Network RX (eth0)</option>
-            <option value="net.eth0.tx_bytes">Network TX (eth0)</option>
         </select>
         <label>Hosts: </label>
-        <select name="hosts" id="hosts" multiple size="5" style="height: 100px;" hx-get="/api/compare" hx-target="#chart" hx-include="[name='metric'],[name='timeRange'],[name='resolution']" hx-trigger="change">
+        <select name="hosts" id="hosts" multiple size="5" style="height: 100px;">
             <option value="">Select hosts...</option>
         </select>
         <label>Range: </label>
-        <select name="timeRange" id="timeRange" hx-get="/api/compare" hx-target="#chart" hx-include="[name='metric'],[name='hosts'],[name='resolution']" hx-trigger="change">
+        <select name="timeRange" id="timeRange">
             <option value="1h">Last hour</option>
             <option value="6h" selected>Last 6 hours</option>
             <option value="24h">Last 24 hours</option>
             <option value="7d">Last 7 days</option>
         </select>
         <label>Resolution: </label>
-        <select name="resolution" id="resolution" hx-get="/api/compare" hx-target="#chart" hx-include="[name='metric'],[name='hosts'],[name='timeRange']" hx-trigger="change">
+        <select name="resolution" id="resolution">
             <option value="raw">Raw</option>
             <option value="1m" selected>1 minute</option>
             <option value="1h">1 hour</option>
@@ -55,40 +54,60 @@
     <script>
         let chart = null;
         const colors = ['#0066cc', '#e65100', '#2e7d32', '#c62828', '#6a1b9a', '#00838f', '#f57f17', '#263238'];
-        
-        function initHosts(hosts) {
+        let hosts = [];
+
+        function initHosts() {
             const select = document.getElementById('hosts');
-            select.innerHTML = '<option value="">Select hosts...</option>';
-            hosts.forEach(h => {
-                const opt = document.createElement('option');
-                opt.value = h.id;
-                opt.textContent = h.name;
-                select.appendChild(opt);
-            });
+            fetch('/api/hosts')
+                .then(r => r.json())
+                .then(data => {
+                    hosts = data;
+                    select.innerHTML = '<option value="">Select hosts...</option>';
+                    data.forEach(h => {
+                        const opt = document.createElement('option');
+                        opt.value = h.id;
+                        opt.textContent = h.name;
+                        select.appendChild(opt);
+                    });
+                });
         }
-        
+
         function updateChart(data) {
-            if (!data) return;
+            const canvas = document.getElementById('compareChart');
+            if (chart) { chart.destroy(); chart = null; }
+            if (!data || !data.series || data.series.length === 0 || data.labels.length === 0) {
+                canvas.parentElement.innerHTML = '<div class="empty">No data in range</div>';
+                return;
+            }
+            canvas.parentElement.innerHTML = '<canvas id="compareChart"></canvas>';
             const ctx = document.getElementById('compareChart').getContext('2d');
-            if (chart) chart.destroy();
-            
             const datasets = data.series.map((s, i) => ({
                 label: s.host, data: s.data.map(d => d[1]), borderColor: colors[i % colors.length],
                 fill: false, tension: 0.1, pointRadius: 0
             }));
-            
             chart = new Chart(ctx, {
                 type: 'line',
                 data: { labels: data.labels, datasets },
                 options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false } }
             });
         }
-        
-        htmx.onLoad(function() {
-            htmx.ajax('GET', '/api/hosts', {target: '#hosts'})
-                .then(function(r) { initHosts(JSON.parse(r.responseText)); });
-            htmx.ajax('GET', '/api/compare?metric=cpu.user_pct&timeRange=6h&resolution=1m', {target: '#chart'})
-                .then(function(r) { updateChart(JSON.parse(r.responseText)); });
+
+        function loadCompare() {
+            const metric = document.getElementById('metric').value;
+            const selected = Array.from(document.getElementById('hosts').selectedOptions).map(o => o.value).filter(v => v !== '');
+            if (selected.length === 0) return;
+            const timeRange = document.getElementById('timeRange').value;
+            const resolution = document.getElementById('resolution').value;
+            const url = '/api/compare?metric=' + encodeURIComponent(metric) + '&hosts=' + selected.join(',') + '&timeRange=' + timeRange + '&resolution=' + resolution;
+            fetch(url, { headers: { 'Accept': 'application/json' } })
+                .then(r => r.json())
+                .then(updateChart)
+                .catch(err => console.error('Failed to load compare:', err));
+        }
+
+        document.addEventListener('DOMContentLoaded', initHosts);
+        ['metric', 'hosts', 'timeRange', 'resolution'].forEach(id => {
+            document.getElementById(id).addEventListener('change', loadCompare);
         });
     </script>
 </body>

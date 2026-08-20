@@ -18,6 +18,8 @@
         .btn-ack { background: #0066cc; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.85em; }
         .btn-ack:hover { background: #0052a3; }
         .btn-ack.acked { background: #616161; cursor: default; }
+        .empty { color: #666; text-align: center; padding: 60px 0; }
+        .alert.acked { opacity: 0.6; }
     </style>
 </head>
 <body>
@@ -25,26 +27,33 @@
         <h1>Alerts</h1>
         <a href="/">← Back to hosts</a>
     </div>
-    <div class="alert warning">
+    {{range .Alerts}}
+    <div class="alert {{if eq .Severity "critical"}}critical{{else if eq .Type "collection_failure"}}down{{else}}warning{{end}}{{if .AcknowledgedAt}} acked{{end}}">
         <div class="alert-header">
-            <span class="alert-title">web-01: CPU User % WARNING</span>
-            <button class="btn-ack">Acknowledge</button>
+            <span class="alert-title">{{if .HostName}}{{.HostName}}{{else}}Host #{{.HostID}}{{end}}: {{.Type}}</span>
+            {{if .AcknowledgedAt}}<button class="btn-ack acked">Acknowledged</button>{{else}}<button class="btn-ack" data-alert-id="{{.ID}}" onclick="acknowledgeAlert(this)">Acknowledge</button>{{end}}
         </div>
-        <div class="alert-meta">Value: 85% > 80% threshold · Fired: 2024-01-15 10:30:00</div>
-    </div>
-    <div class="alert critical">
-        <div class="alert-header">
-            <span class="alert-title">db-02: Disk Used % CRITICAL</span>
-            <button class="btn-ack">Acknowledge</button>
+        <div class="alert-meta">
+            {{if .Metric}}{{.Metric}}: {{end}}{{.Message}} · Severity: {{.Severity}} · Fired: {{.FiredAt.Format "2006-01-02 15:04:05"}}
+            {{if .SilencedUntil}} · Silenced until {{.SilencedUntil.Format "2006-01-02 15:04:05"}}{{end}}
         </div>
-        <div class="alert-meta">Value: 96% > 95% threshold · Fired: 2024-01-15 09:15:00</div>
     </div>
-    <div class="alert down">
-        <div class="alert-header">
-            <span class="alert-title">cache-03: HOST DOWN</span>
-            <button class="btn-ack">Acknowledge</button>
-        </div>
-        <div class="alert-meta">3 consecutive failed polls · Fired: 2024-01-15 08:00:00</div>
-    </div>
+    {{else}}
+    <div class="empty">No alerts</div>
+    {{end}}
+    <script>
+        function acknowledgeAlert(btn) {
+            const id = btn.getAttribute('data-alert-id');
+            fetch('/api/alerts?action=acknowledge&id=' + id, { method: 'POST' })
+                .then(r => {
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    const alert = btn.closest('.alert');
+                    alert.classList.add('acked');
+                    btn.classList.add('acked');
+                    btn.textContent = 'Acknowledged';
+                })
+                .catch(err => console.error('Failed to acknowledge alert:', err));
+        }
+    </script>
 </body>
 </html>

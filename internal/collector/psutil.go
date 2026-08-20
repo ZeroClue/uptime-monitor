@@ -59,7 +59,7 @@ func buildPsutilCommand(host Host) string {
 	if host.Sudo {
 		sudo = "sudo "
 	}
-	return fmt.Sprintf("%spython3 -c \"import psutil, json; cpu = psutil.cpu_times_percent(interval=0.1); mem = psutil.virtual_memory(); disk = psutil.disk_usage('/'); net = psutil.net_io_counters(pernic=True); load = psutil.getloadavg(); uptime = psutil.boot_time(); print(json.dumps({'cpu': {'user': cpu.user, 'system': cpu.system, 'idle': cpu.idle, 'iowait': cpu.iowait, 'load1': load[0], 'load5': load[1], 'load15': load[2]}, 'mem': {'total': mem.total, 'used': mem.used, 'free': mem.free, 'available': mem.available, 'cached': mem.cached}, 'disk': {'total': disk.total, 'used': disk.used, 'free': disk.free}, 'net': {k: {'rx_bytes': v.bytes_recv, 'tx_bytes': v.bytes_sent, 'rx_packets': v.packets_recv, 'tx_packets': v.packets_sent, 'errors': v.errin + v.errout} for k, v in net.items()}, 'uptime': int(time.time() - uptime)}))\"", sudo)
+	return fmt.Sprintf("%spython3 -c \"import psutil, json, time; cpu = psutil.cpu_times_percent(interval=0.1); mem = psutil.virtual_memory(); disk = psutil.disk_usage('/'); net = psutil.net_io_counters(pernic=True); load = psutil.getloadavg(); uptime = psutil.boot_time(); print(json.dumps({'cpu': {'user': cpu.user, 'system': cpu.system, 'idle': cpu.idle, 'iowait': cpu.iowait, 'load1': load[0], 'load5': load[1], 'load15': load[2]}, 'mem': {'total': mem.total, 'used': mem.used, 'free': mem.free, 'available': mem.available, 'cached': mem.cached}, 'disk': {'total': disk.total, 'used': disk.used, 'free': disk.free}, 'net': {k: {'rx_bytes': v.bytes_recv, 'tx_bytes': v.bytes_sent, 'rx_packets': v.packets_recv, 'tx_packets': v.packets_sent, 'errors': v.errin + v.errout} for k, v in net.items()}, 'uptime': int(time.time() - uptime)}))\"", sudo)
 }
 
 type PsutilOutput struct {
@@ -105,7 +105,7 @@ type PsutilNet struct {
 func (p *PsutilCollector) convertToSamples(hostID int64, data PsutilOutput) []Sample {
 	now := time.Now()
 	samples := []Sample{
-		{HostID: hostID, Metric: "cpu.user_pct", Value: data.CPU.User, Timestamp: now},
+		{HostID: hostID, Metric: "cpu.user_pct", Value: data.CPU.User, Timestamp: now, Collector: "psutil"},
 		{HostID: hostID, Metric: "cpu.system_pct", Value: data.CPU.System, Timestamp: now},
 		{HostID: hostID, Metric: "cpu.idle_pct", Value: data.CPU.Idle, Timestamp: now},
 		{HostID: hostID, Metric: "cpu.iowait_pct", Value: data.CPU.Iowait, Timestamp: now},

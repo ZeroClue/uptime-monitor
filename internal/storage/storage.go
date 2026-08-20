@@ -32,6 +32,15 @@ func New(dataDir string) (*DB, error) {
 	return &DB{DB: sqlDB, logger: slog.Default()}, nil
 }
 
+func (db *DB) DBSizeMB() float64 {
+	var size int64
+	err := db.QueryRow(`SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()`).Scan(&size)
+	if err != nil {
+		return 0
+	}
+	return float64(size) / (1024 * 1024)
+}
+
 
 
 

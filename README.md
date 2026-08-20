@@ -133,29 +133,40 @@ webhooks:
 
 ## Deployment
 
-### Docker Compose (Recommended)
+### Development (Local Build)
 
-```yaml
-# docker-compose.yml
-services:
-  monitor:
-    image: uptime-monitor:latest
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./config:/config:ro
-      - ./data:/data
-    environment:
-      - DASHBOARD_PASSWORD=${DASHBOARD_PASSWORD}
-      - POLL_INTERVAL=30s
-      - LOG_LEVEL=info
-    network_mode: host  # Required for Tailscale access
-    restart: unless-stopped
+Use the included `docker-compose.yml` which builds locally:
+
+```bash
+# Build and run locally
+DASHBOARD_PASSWORD=changeme docker-compose up --build -d
+
+# Or just rebuild when code changes
+docker-compose up --build -d
 ```
+
+The default `docker-compose.yml` builds locally and uses `image: uptime-monitor:latest`.
+
+### Production (GHCR Image)
+
+Use the production override to pull from GHCR:
+
+```bash
+# Set version (optional, defaults to latest)
+export UPTIME_MONITOR_VERSION=0.2.0
+
+# Deploy
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+The production compose (`docker-compose.prod.yml`) pulls from GHCR:
+- `ghcr.io/zeroclue/uptime-monitor:0.2.0`
+- `ghcr.io/zeroclue/uptime-monitor:latest`
 
 ### Manual Docker Run
 
 ```bash
+# Development (local image)
 docker run -d \
   --name uptime-monitor \
   -p 8080:8080 \
@@ -167,6 +178,38 @@ docker run -d \
   --network host \
   --restart unless-stopped \
   uptime-monitor:latest
+
+# Production (GHCR image)
+docker run -d \
+  --name uptime-monitor \
+  -p 8080:8080 \
+  -v $(pwd)/config:/config:ro \
+  -v $(pwd)/data:/data \
+  -e DASHBOARD_PASSWORD=changeme \
+  -e POLL_INTERVAL=30s \
+  -e LOG_LEVEL=info \
+  --network host \
+  --restart unless-stopped \
+  ghcr.io/zeroclue/uptime-monitor:latest
+```
+
+### Environment Variables for Production
+
+Create a `.env` file for production deployment:
+
+```bash
+# .env
+DASHBOARD_PASSWORD=your-secure-password
+TS_AUTHKEY=tskey-auth-xxxxxxxxxxxx
+TS_HOSTNAME=uptime-monitor-prod
+TS_ROUTES=10.0.0.0/24,192.168.1.0/24
+UPTIME_MONITOR_VERSION=0.2.0
+```
+
+Then deploy:
+
+```bash
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml --env-file .env up -d
 ```
 
 ### Tailscale Hosts

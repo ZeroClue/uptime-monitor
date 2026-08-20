@@ -91,6 +91,7 @@ func (c *sshClient) Exec(ctx context.Context, target *SSHTarget, cmd string) (st
 
 	args := []string{"ssh", "-o", "StrictHostKeyChecking=" + target.StrictHostKeyChecking}
 	args = append(args, "-o", "UserKnownHostsFile="+target.UserKnownHostsFile)
+	args = append(args, "-o", "LogLevel=ERROR")
 
 	if target.ConnectTimeout > 0 {
 		args = append(args, "-o", fmt.Sprintf("ConnectTimeout=%d", int(target.ConnectTimeout.Seconds())))

@@ -1,4 +1,5 @@
 # Build stage
+ARG CACHE_BUST=5
 FROM golang:1.22-alpine AS builder
 
 RUN apk add --no-cache gcc musl-dev sqlite-dev
@@ -20,6 +21,7 @@ RUN apk add --no-cache ca-certificates sqlite-libs openssh-client tailscale
 WORKDIR /app
 
 COPY --from=builder /uptime-monitor .
+COPY --from=builder /app/internal ./internal
 
 EXPOSE 8080
 

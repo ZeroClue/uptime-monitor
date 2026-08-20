@@ -30,6 +30,14 @@ type Engine struct {
 type ThresholdConfig struct {
 	Warning  float64
 	Critical float64
+	Below    bool
+}
+
+func exceedsThreshold(value, threshold float64, below bool) bool {
+	if below {
+		return value <= threshold
+	}
+	return value >= threshold
 }
 
 type WebhookConfig struct {
@@ -133,8 +141,9 @@ func (e *Engine) checkMetricThresholds(ctx context.Context, hostID int64, hostNa
 		}
 
 		latest := samples[len(samples)-1].Value
+		below := threshold.Below
 
-		if latest >= threshold.Critical {
+		if exceedsThreshold(latest, threshold.Critical, below) {
 			e.fireAlert(ctx, storage.Alert{
 				HostID:    hostID,
 				Type:      "metric_threshold",
@@ -145,7 +154,7 @@ func (e *Engine) checkMetricThresholds(ctx context.Context, hostID int64, hostNa
 				Threshold: threshold.Critical,
 				FiredAt:   time.Now(),
 			})
-		} else if latest >= threshold.Warning {
+		} else if exceedsThreshold(latest, threshold.Warning, below) {
 			e.fireAlert(ctx, storage.Alert{
 				HostID:    hostID,
 				Type:      "metric_threshold",

@@ -48,6 +48,7 @@ thresholds:
   uptime.seconds:
     warning: 300      # Alert if uptime < 5 min (recent reboot)
     critical: 60      # Alert if uptime < 1 min
+    below: true
 
 # Collection failure threshold (consecutive failed polls before host DOWN)
 collection:

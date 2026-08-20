@@ -245,7 +245,13 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAlerts(w http.ResponseWriter, r *http.Request) {
-	s.render(w, "alerts.html", nil)
+	alerts, err := s.db.GetAllAlerts(r.Context())
+	if err != nil {
+		s.logger.Error("failed to get alerts", "error", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+	s.render(w, "alerts.html", struct{ Alerts []storage.AlertWithHost }{Alerts: alerts})
 }
 
 func (s *Server) handleMonitor(w http.ResponseWriter, r *http.Request) {
@@ -254,9 +260,11 @@ func (s *Server) handleMonitor(w http.ResponseWriter, r *http.Request) {
 	data := struct {
 		Hosts    []storage.Host
 		Statuses map[int64]*scheduler.HostStatus
+		DBSize   float64
 	}{
 		Hosts:    hosts,
 		Statuses: statuses,
+		DBSize:   s.db.DBSizeMB(),
 	}
 	s.render(w, "monitor.html", data)
 }
@@ -322,12 +330,12 @@ func (s *Server) handleAPIHost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Support both /api/host/:id/metrics (all metrics) and /api/host/:id/metric/:metric (single metric)
-	if len(parts) >= 3 {
+	if len(parts) >= 2 {
 		if parts[1] == "metrics" {
 			s.handleAPIHostMetrics(w, r, hostID)
 			return
 		}
-		if parts[1] == "metric" {
+		if parts[1] == "metric" && len(parts) >= 3 {
 			s.handleAPIHostMetric(w, r, hostID, parts[2])
 			return
 		}
@@ -336,32 +344,33 @@ func (s *Server) handleAPIHost(w http.ResponseWriter, r *http.Request) {
 	http.NotFound(w, r)
 }
 
-func (s *Server) handleAPIHostMetrics(w http.ResponseWriter, r *http.Request, hostID string) {
-	timeRange := r.URL.Query().Get("timeRange")
-	resolution := r.URL.Query().Get("resolution")
-
-	var from, to time.Time
+func timeRangeToFrom(timeRange string) time.Time {
 	now := time.Now()
-
 	switch timeRange {
 	case "1h":
-		from = now.Add(-1 * time.Hour)
-	case "6h":
-		from = now.Add(-6 * time.Hour)
+		return now.Add(-1 * time.Hour)
 	case "24h":
-		from = now.Add(-24 * time.Hour)
+		return now.Add(-24 * time.Hour)
 	case "7d":
-		from = now.Add(-7 * 24 * time.Hour)
+		return now.Add(-7 * 24 * time.Hour)
 	case "30d":
-		from = now.Add(-30 * 24 * time.Hour)
-	default:
-		from = now.Add(-6 * time.Hour)
+		return now.Add(-30 * 24 * time.Hour)
+	default: // 6h
+		return now.Add(-6 * time.Hour)
 	}
-	to = now
+}
 
+func resolveResolution(resolution string) string {
 	if resolution == "" {
-		resolution = "1m"
+		return "1m"
 	}
+	return resolution
+}
+
+func (s *Server) handleAPIHostMetrics(w http.ResponseWriter, r *http.Request, hostID string) {
+	from := timeRangeToFrom(r.URL.Query().Get("timeRange"))
+	to := time.Now()
+	resolution := resolveResolution(r.URL.Query().Get("resolution"))
 
 	hosts, _ := s.db.GetHosts()
 	var h *storage.Host
@@ -377,18 +386,39 @@ func (s *Server) handleAPIHostMetrics(w http.ResponseWriter, r *http.Request, ho
 		return
 	}
 
-	metrics := []string{
+	metrics, err := s.db.GetAvailableMetrics(r.Context(), h.ID)
+	if err != nil {
+		s.logger.Error("failed to get available metrics", "host", h.ID, "error", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+
+	baseMetrics := []string{
 		"cpu.user_pct", "cpu.system_pct", "cpu.idle_pct", "cpu.iowait_pct",
-		"mem.used_bytes", "mem.free_bytes", "mem.cached_bytes",
-		"disk.used_bytes", "disk.free_bytes",
-		"net.eth0.rx_bytes", "net.eth0.tx_bytes",
+		"cpu.load_1m", "cpu.load_5m", "cpu.load_15m",
+		"mem.used_bytes", "mem.free_bytes", "mem.available_bytes", "mem.cached_bytes", "mem.total_bytes",
+		"disk.used_bytes", "disk.free_bytes", "disk.total_bytes",
+		"uptime.seconds",
+	}
+
+	allMetrics := append(baseMetrics, metrics...)
+	metricSet := make(map[string]bool)
+	for _, m := range allMetrics {
+		metricSet[m] = true
+	}
+	uniqueMetrics := make([]string, 0, len(metricSet))
+	for m := range metricSet {
+		uniqueMetrics = append(uniqueMetrics, m)
 	}
 
 	result := make(map[string]interface{})
-	for _, m := range metrics {
+	for _, m := range uniqueMetrics {
 		samples, err := s.db.GetSamples(r.Context(), h.ID, m, from, to, resolution)
 		if err != nil {
 			s.logger.Error("failed to get samples", "metric", m, "error", err)
+			continue
+		}
+		if len(samples) == 0 {
 			continue
 		}
 
@@ -404,31 +434,9 @@ func (s *Server) handleAPIHostMetrics(w http.ResponseWriter, r *http.Request, ho
 }
 
 func (s *Server) handleAPIHostMetric(w http.ResponseWriter, r *http.Request, hostID, metric string) {
-	timeRange := r.URL.Query().Get("timeRange")
-	resolution := r.URL.Query().Get("resolution")
-
-	var from, to time.Time
-	now := time.Now()
-
-	switch timeRange {
-	case "1h":
-		from = now.Add(-1 * time.Hour)
-	case "6h":
-		from = now.Add(-6 * time.Hour)
-	case "24h":
-		from = now.Add(-24 * time.Hour)
-	case "7d":
-		from = now.Add(-7 * 24 * time.Hour)
-	case "30d":
-		from = now.Add(-30 * 24 * time.Hour)
-	default:
-		from = now.Add(-6 * time.Hour)
-	}
-	to = now
-
-	if resolution == "" {
-		resolution = "1m"
-	}
+	from := timeRangeToFrom(r.URL.Query().Get("timeRange"))
+	to := time.Now()
+	resolution := resolveResolution(r.URL.Query().Get("resolution"))
 
 	hosts, _ := s.db.GetHosts()
 	var h *storage.Host
@@ -444,74 +452,63 @@ func (s *Server) handleAPIHostMetric(w http.ResponseWriter, r *http.Request, hos
 		return
 	}
 
-	samples, err := s.db.GetSamples(r.Context(), h.ID, metric, from, to, resolution)
-	if err != nil {
-		s.logger.Error("failed to get samples", "metric", metric, "error", err)
-		http.Error(w, "Internal error", http.StatusInternalServerError)
-		return
+	data := s.getMetricSeries(r.Context(), h.ID, metric, from, to, resolution)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"metrics": map[string]interface{}{metric: data}})
+}
+
+func (s *Server) getMetricSeries(ctx context.Context, hostID int64, metric string, from, to time.Time, resolution string) [][2]float64 {
+	// Derive percentage metrics from stored byte metrics
+	if metric == "mem.used_pct" || metric == "disk.used_pct" {
+		usedMetric := strings.Replace(metric, "used_pct", "used_bytes", 1)
+		totalMetric := strings.Replace(metric, "used_pct", "total_bytes", 1)
+		used, err1 := s.db.GetSamples(ctx, hostID, usedMetric, from, to, resolution)
+		total, err2 := s.db.GetSamples(ctx, hostID, totalMetric, from, to, resolution)
+		if err1 != nil || err2 != nil {
+			return nil
+		}
+		totalByTS := make(map[int64]float64, len(total))
+		for _, t := range total {
+			totalByTS[t.Timestamp.Unix()] = t.Value
+		}
+		data := make([][2]float64, 0, len(used))
+		for _, u := range used {
+			totalVal, ok := totalByTS[u.Timestamp.Unix()]
+			if !ok || totalVal == 0 {
+				continue
+			}
+			data = append(data, [2]float64{float64(u.Timestamp.Unix()), u.Value / totalVal * 100})
+		}
+		return data
 	}
 
-	// Return HTMX partial fragment with chart
+	samples, err := s.db.GetSamples(ctx, hostID, metric, from, to, resolution)
+	if err != nil {
+		return nil
+	}
 	data := make([][2]float64, len(samples))
 	for i, s := range samples {
 		data[i] = [2]float64{float64(s.Timestamp.Unix()), s.Value}
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	s.renderMetricPanel(w, metric, data)
-}
-
-func (s *Server) renderMetricPanel(w http.ResponseWriter, metric string, data [][2]float64) {
-	timestamps := make([]string, len(data))
-	values := make([]float64, len(data))
-	for i, d := range data {
-		timestamps[i] = time.Unix(int64(d[0]), 0).Format("15:04")
-		values[i] = d[1]
+	// Network counters are cumulative; convert to per-second rates.
+	if strings.HasSuffix(metric, ".rx_bytes") || strings.HasSuffix(metric, ".tx_bytes") {
+		return toRateSeries(data)
 	}
-
-	// Render HTMX partial with Chart.js chart
-	valuesJSON := formatFloatArray(values)
-	html := fmt.Sprintf(`
-<div class="chart-container" hx-get="/api/host/%%d/metric/%s?timeRange=%%s&resolution=%%s" hx-trigger="load" hx-target="this" hx-swap="innerHTML">
-    <canvas id="metric-%s"></canvas>
-</div>
-<script>
-    const ctx = document.getElementById('metric-%s').getContext('2d');
-    new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: %s,
-            datasets: [{ label: '%s', data: %s, borderColor: '#0066cc', fill: false, tension: 0.1, pointRadius: 0 }]
-        },
-        options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false } }
-    });
-</script>
-`, metric, metric, metric, formatJSONArray(timestamps), metric, valuesJSON)
-	w.Write([]byte(html))
+	return data
 }
 
-func formatFloatArray(arr []float64) string {
-	result := "["
-	for i, v := range arr {
-		if i > 0 {
-			result += ","
+func toRateSeries(data [][2]float64) [][2]float64 {
+	out := make([][2]float64, 0, len(data))
+	for i := 1; i < len(data); i++ {
+		dt := data[i][0] - data[i-1][0]
+		if dt <= 0 {
+			continue
 		}
-		result += fmt.Sprintf("%.2f", v)
+		out = append(out, [2]float64{data[i][0], (data[i][1] - data[i-1][1]) / dt})
 	}
-	result += "]"
-	return result
-}
-
-func formatJSONArray(arr []string) string {
-	result := "["
-	for i, s := range arr {
-		if i > 0 {
-			result += ","
-		}
-		result += `"` + s + `"`
-	}
-	result += "]"
-	return result
+	return out
 }
 
 func (s *Server) handleAPICompare(w http.ResponseWriter, r *http.Request) {
@@ -527,26 +524,9 @@ func (s *Server) handleAPICompare(w http.ResponseWriter, r *http.Request) {
 
 	hostIDs := strings.Split(hostsParam, ",")
 
-	var from, to time.Time
-	now := time.Now()
-
-	switch timeRange {
-	case "1h":
-		from = now.Add(-1 * time.Hour)
-	case "6h":
-		from = now.Add(-6 * time.Hour)
-	case "24h":
-		from = now.Add(-24 * time.Hour)
-	case "7d":
-		from = now.Add(-7 * 24 * time.Hour)
-	default:
-		from = now.Add(-6 * time.Hour)
-	}
-	to = now
-
-	if resolution == "" {
-		resolution = "1m"
-	}
+	from := timeRangeToFrom(timeRange)
+	to := time.Now()
+	resolution = resolveResolution(resolution)
 
 	type Series struct {
 		Host string       `json:"host"`
@@ -567,15 +547,7 @@ func (s *Server) handleAPICompare(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		samples, err := s.db.GetSamples(r.Context(), h.ID, metric, from, to, resolution)
-		if err != nil {
-			continue
-		}
-
-		data := make([][2]float64, len(samples))
-		for i, s := range samples {
-			data[i] = [2]float64{float64(s.Timestamp.Unix()), s.Value}
-		}
+		data := s.getMetricSeries(r.Context(), h.ID, metric, from, to, resolution)
 		series = append(series, Series{Host: h.Name, Data: data})
 	}
 
@@ -605,6 +577,15 @@ func (s *Server) handleAPIAlerts(w http.ResponseWriter, r *http.Request) {
 			}
 			if err := s.db.SilenceAlert(r.Context(), parseInt64(alertID), duration); err != nil {
 				s.logger.Error("failed to silence alert", "error", err)
+				http.Error(w, "Internal error", http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if action == "acknowledge" && alertID != "" {
+			if err := s.db.AcknowledgeAlert(r.Context(), parseInt64(alertID)); err != nil {
+				s.logger.Error("failed to acknowledge alert", "error", err)
 				http.Error(w, "Internal error", http.StatusInternalServerError)
 				return
 			}

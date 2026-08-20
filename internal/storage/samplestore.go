@@ -57,3 +57,22 @@ func (db *DB) GetSamples(ctx context.Context, hostID int64, metric string, from,
 	}
 	return samples, nil
 }
+
+func (db *DB) GetAvailableMetrics(ctx context.Context, hostID int64) ([]string, error) {
+	query := `SELECT DISTINCT metric FROM samples_raw WHERE host_id = ? ORDER BY metric`
+	rows, err := db.QueryContext(ctx, query, hostID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var metrics []string
+	for rows.Next() {
+		var m string
+		if err := rows.Scan(&m); err != nil {
+			return nil, err
+		}
+		metrics = append(metrics, m)
+	}
+	return metrics, nil
+}
