@@ -101,6 +101,43 @@ func TestSortedCoreIDs(t *testing.T) {
 	}
 }
 
+func TestParseDiskStats(t *testing.T) {
+	output := "   8       0 sda 100 50 5000 100 200 30 3000 50 0 100 200\n" +
+		"   8       1 sda1 50 25 2500 50 100 15 1500 25 0 50 100\n" +
+		" 259       0 nvme0n1 10 0 800 5 20 0 1600 10 0 5 15\n" +
+		"   7       0 loop0 5 0 100 1 5 0 100 1 0 1 2\n"
+	devs, err := parseDiskStats(output)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(devs) != 3 {
+		t.Fatalf("got %d devices, want 3 (loop excluded)", len(devs))
+	}
+	sda := devs["sda"]
+	if sda.ReadBytes != 5000*512 {
+		t.Errorf("sda read_bytes = %d, want %d", sda.ReadBytes, 5000*512)
+	}
+	if sda.WriteBytes != 3000*512 {
+		t.Errorf("sda write_bytes = %d, want %d", sda.WriteBytes, 3000*512)
+	}
+	if sda.ReadOps != 100 || sda.WriteOps != 200 {
+		t.Errorf("sda ops = %+v", sda)
+	}
+	nvme := devs["nvme0n1"]
+	if nvme.ReadBytes != 800*512 || nvme.WriteBytes != 1600*512 {
+		t.Errorf("nvme bytes = %+v", nvme)
+	}
+	if _, ok := devs["loop0"]; ok {
+		t.Error("loop0 should be excluded")
+	}
+}
+
+func TestParseDiskStats_Empty(t *testing.T) {
+	if _, err := parseDiskStats(""); err == nil {
+		t.Fatal("expected error for empty diskstats output")
+	}
+}
+
 func TestParseMemInfo_SwapFields(t *testing.T) {
 	output := "MemTotal:       16384000 kB\nMemFree:         1024000 kB\nMemAvailable:     8192000 kB\nSwapTotal:       2097152 kB\nSwapFree:        1048576 kB\n"
 	info, err := parseMemInfo(output)

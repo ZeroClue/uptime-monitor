@@ -78,3 +78,30 @@ func TestConvertToSamples_PerCoreCPU(t *testing.T) {
 		t.Errorf("core 0 idle_pct = %v, want 50", v)
 	}
 }
+
+func TestConvertToSamples_DiskIO(t *testing.T) {
+	data := PsutilOutput{
+		DiskIO: map[string]PsutilDiskIO{
+			"nvme0n1": {ReadBytes: 1000, WriteBytes: 2000, ReadOps: 10, WriteOps: 20},
+			"sda":     {ReadBytes: 3000, WriteBytes: 4000, ReadOps: 30, WriteOps: 40},
+		},
+	}
+
+	p := &PsutilCollector{}
+	samples := p.convertToSamples(1, data)
+
+	got := map[string]float64{}
+	for _, s := range samples {
+		got[s.Metric] = s.Value
+	}
+
+	if v := got["diskio.sda.read_bytes"]; v != 3000 {
+		t.Errorf("sda read_bytes = %v, want 3000", v)
+	}
+	if v := got["diskio.nvme0n1.write_ops"]; v != 20 {
+		t.Errorf("nvme write_ops = %v, want 20", v)
+	}
+	if v := got["diskio.sda.read_ops"]; v != 30 {
+		t.Errorf("sda read_ops = %v, want 30", v)
+	}
+}

@@ -66,6 +66,51 @@
         return (physical[0] || names[0] || '');
     }
 
+    function sortVirtualLast(names) {
+        const isVirtual = n => /^(veth|br-|docker|virbr|lo)/.test(n) || n.startsWith('veth');
+        return names.sort((a, b) => (isVirtual(a) ? 1 : 0) - (isVirtual(b) ? 1 : 0) || a.localeCompare(b));
+    }
+
+    function buildRatePanel(opts) {
+        const { panelId, selectId, canvasId, title, groups, ratePairs, optionLabel } = opts;
+        const names = Object.keys(groups);
+        let panel = document.getElementById(panelId);
+        if (!names.length) {
+            if (panel) panel.remove();
+            return;
+        }
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.className = 'panel';
+            panel.id = panelId;
+            panel.innerHTML = '<div class="panel-head"><h3>' + title + '</h3><select id="' + selectId + '"></select></div><div class="chart-container"><canvas id="' + canvasId + '"></canvas></div>';
+            document.getElementById('charts').appendChild(panel);
+        }
+        const select = document.getElementById(selectId);
+        const previous = select.value;
+        const sorted = sortVirtualLast(names);
+        select.innerHTML = '';
+        sorted.forEach(n => {
+            const opt = document.createElement('option');
+            opt.value = n;
+            opt.textContent = optionLabel ? optionLabel(n) : n;
+            select.appendChild(opt);
+        });
+        if (sorted.includes(previous)) select.value = previous;
+        else select.value = pickDefaultInterface(groups) || sorted[0];
+        select.onchange = function () { renderRateChart(this.value, groups, ratePairs, canvasId); };
+        renderRateChart(select.value, groups, ratePairs, canvasId);
+    }
+
+    function renderRateChart(key, groups, ratePairs, canvasId) {
+        const series = [];
+        for (const [metric, label] of ratePairs) {
+            const d = groups[key] && groups[key][metric];
+            if (d && d.length) series.push({ label: label, data: toRate(d) });
+        }
+        renderChart(canvasId, key, series);
+    }
+
     function toRate(data) {
         const out = [];
         for (let i = 1; i < data.length; i++) {
@@ -141,41 +186,31 @@
 
     function buildNetPanel() {
         netInterfaces = groupNetByInterface(allMetrics);
-        const names = Object.keys(netInterfaces);
-
-        let panel = document.getElementById('netPanel');
-        if (!names.length) {
-            if (panel) panel.remove();
-            return;
-        }
-
-        if (!panel) {
-            panel = document.createElement('div');
-            panel.className = 'panel';
-            panel.id = 'netPanel';
-            panel.innerHTML = '<div class="panel-head"><h3>Network</h3><select id="netIface"></select></div><div class="chart-container"><canvas id="netChart"></canvas></div>';
-            document.getElementById('charts').appendChild(panel);
-        }
-
-        const select = document.getElementById('netIface');
-        const previous = select.value;
-        const isVirtual = n => /^(veth|br-|docker|virbr|lo)/.test(n);
-        const sorted = names.sort((a, b) => {
-            const ap = isVirtual(a) ? 1 : 0;
-            const bp = isVirtual(b) ? 1 : 0;
-            return ap - bp || a.localeCompare(b);
+        buildRatePanel({
+            panelId: 'netPanel', selectId: 'netIface', canvasId: 'netChart', title: 'Network',
+            groups: netInterfaces,
+            ratePairs: [['rx_bytes', 'rx'], ['tx_bytes', 'tx']],
         });
-        select.innerHTML = '';
-        sorted.forEach(n => {
-            const opt = document.createElement('option');
-            opt.value = n;
-            opt.textContent = n;
-            select.appendChild(opt);
+    }
+
+    function groupDiskIO(metrics) {
+        const devs = {};
+        for (const [key, data] of Object.entries(metrics)) {
+            const m = key.match(/^diskio\.(.+?)\.(read_bytes|write_bytes|read_ops|write_ops)$/);
+            if (m && data && data.length) {
+                if (!devs[m[1]]) devs[m[1]] = {};
+                devs[m[1]][m[2]] = data;
+            }
+        }
+        return devs;
+    }
+
+    function buildDiskIOPanel() {
+        buildRatePanel({
+            panelId: 'diskioPanel', selectId: 'diskioSelect', canvasId: 'diskioChart', title: 'Disk I/O',
+            groups: groupDiskIO(allMetrics),
+            ratePairs: [['read_bytes', 'read'], ['write_bytes', 'write']],
         });
-        if (sorted.includes(previous)) select.value = previous;
-        else select.value = pickDefaultInterface(netInterfaces) || sorted[0];
-        select.onchange = function () { renderNetChart(this.value); };
-        renderNetChart(select.value);
     }
 
     function renderNetChart(iface) {
@@ -321,6 +356,7 @@
         panelFor('Disk', 'diskChart', diskKeys.map(k => ({ label: metricLabel(k, 'disk.'), data: groups.disk[k] })));
 
         buildNetPanel();
+        buildDiskIOPanel();
         buildCorePanel();
     }
 
