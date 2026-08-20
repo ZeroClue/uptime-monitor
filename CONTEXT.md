@@ -60,3 +60,8 @@ hosts:
 | Tailscale mode | External (host network) by default | In-container option for v2 |
 | Config reload | Docker restart (simplest) | File watcher as enhancement |
 | Monitor observability | /healthz + dashboard monitor page | Self-metrics (Prometheus) deferred |
+| Chart rendering | Fetch JSON from `/api/host/:id/metrics`, render client-side with Chart.js | htmx target-swap destroyed canvases; single fetch on DOMContentLoaded |
+| Net metrics display | Cumulative counters converted to per-second rates client-side (host) and server-side (compare) | Raw counters produce meaningless rising lines |
+| Interface picker | Defaults to eth0; veth/br/docker filtered out | Avoids chart spam on virtual interfaces |
+| Alert thresholds | Upper-bound by default; `below: true` opts into lower-bound (uptime.seconds) | uptime must alert when *under* a threshold |
+| SSH command output | `LogLevel=ERROR` suppresses host-key warning; parsers scan for first numeric token | "Permanently added" stderr line was parsed as field[0], zeroing uptime/load |
