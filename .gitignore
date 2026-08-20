@@ -61,3 +61,9 @@ ehthumbs.db
 Desktop.ini
 # Brainstorming visual companion artifacts
 .superpowers/
+
+# Tailscale runtime state (created by container, root-owned)
+tailscale-state/
+
+# Local tooling not part of the repo's skill set (see .agents/skills/ + skills-lock.json)
+.claude/skills/playwright-cli/
