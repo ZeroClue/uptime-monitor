@@ -157,14 +157,14 @@ Use the production override to pull from GHCR:
 
 ```bash
 # Set version (optional, defaults to latest)
-export UPTIME_MONITOR_VERSION=0.2.0
+export UPTIME_MONITOR_VERSION=0.3.0
 
 # Deploy
 docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 
 The production compose (`docker-compose.prod.yml`) pulls from GHCR:
-- `ghcr.io/zeroclue/uptime-monitor:0.2.0`
+- `ghcr.io/zeroclue/uptime-monitor:0.3.0`
 - `ghcr.io/zeroclue/uptime-monitor:latest`
 
 ### Manual Docker Run
@@ -207,7 +207,7 @@ DASHBOARD_PASSWORD=your-secure-password
 TS_AUTHKEY=tskey-auth-xxxxxxxxxxxx
 TS_HOSTNAME=uptime-monitor-prod
 TS_ROUTES=10.0.0.0/24,192.168.1.0/24
-UPTIME_MONITOR_VERSION=0.2.0
+UPTIME_MONITOR_VERSION=0.3.0
 ```
 
 Then deploy:
@@ -300,136 +300,6 @@ services:
 ```
 
 Then configure hosts with `connection: tailscale` and they'll route through the sidecar's SOCKS5 proxy.
-
-### Manual Docker Run
-
-```bash
-docker run -d \
-  --name uptime-monitor \
-  -p 8080:8080 \
-  -v $(pwd)/config:/config:ro \
-  -v $(pwd)/data:/data \
-  -e DASHBOARD_PASSWORD=changeme \
-  -e POLL_INTERVAL=30s \
-  -e LOG_LEVEL=info \
-  --network host \
-  --restart unless-stopped \
-  uptime-monitor:latest
-```
-
-### Tailscale Hosts
-
-For hosts only reachable via Tailscale, use `network_mode: host` and configure hosts with `connection: tailscale`:
-
-```yaml
-hosts:
-  - name: remote-db
-    connection: tailscale
-    endpoint: 100.x.y.z    # Tailscale IP
-    user: monitor
-    key_path: /keys/remote-db
-```
-
-### Tailscale SSH (Keyless Authentication)
-
-For true keyless SSH via Tailscale's ACL-based authentication, the monitor can run Tailscale inside the container using its built-in SSH certificate authority.
-
-#### Quick Setup
-
-1. **Generate an ephemeral auth key** in the Tailscale admin console:
-   - Settings → Keys → Generate auth key
-   - Ephemeral: ✓
-   - Pre-authorized: ✓
-   - Tags: `tag:monitor`
-
-2. **Create ACL policy** allowing monitor → targets:
-   ```json
-   {
-     "ssh": [
-       { "action": "accept", "src": ["tag:monitor"], "dst": ["tag:server"] }
-     ]
-   }
-   ```
-
-3. **Configure docker-compose** with your auth key:
-   ```bash
-   # .env file
-   TS_AUTHKEY=tskey-auth-xxxxxxxxxxxx
-   TS_HOSTNAME=uptime-monitor
-   # Optional: advertise routes for subnet access
-   TS_ROUTES=10.0.0.0/24,192.168.1.0/24
-   ```
-
-4. **Tag target hosts** with `tag:server` in Tailscale admin console.
-
-5. **Configure hosts** to use Tailscale SSH (no SSH keys needed):
-   ```yaml
-   hosts:
-     - name: remote-db
-       connection: tailscale
-       endpoint: 100.x.y.z   # Tailscale IP (or MagicDNS name)
-       user: monitor
-       # key_path: NOT NEEDED - Tailscale SSH handles auth
-       tags: [db, production]
-   ```
-
-#### How It Works
-
-- Monitor container runs `tailscaled` with `--tun=userspace-networking`
-- On startup, authenticates via `TS_AUTHKEY` and joins your tailnet
-- Tailscale's SSH certificate authority issues short-lived certificates per ACL policy
-- SSH connections to `tag:server` hosts are authenticated via Tailscale's CA — no SSH keys needed
-- Collector uses `connection: tailscale` to indicate Tailscale IP reachability
-
-#### Alternative: Tailscale Sidecar (for separation)
-
-If you prefer separate containers:
-
-```yaml
-services:
-  tailscale:
-    image: tailscale/tailscale:latest
-    cap_add: [NET_ADMIN, SYS_MODULE]
-    devices: ["/dev/net/tun:/dev/net/tun"]
-    environment:
-      - TS_AUTHKEY=${TS_AUTHKEY}
-      - TS_HOSTNAME=uptime-monitor-sidecar
-  monitor:
-    environment:
-      - TS_SOCKS5_PROXY=tailscale:1055
-    depends_on: [tailscale]
-```
-
-Then configure hosts with `connection: tailscale` and they'll route through the sidecar's SOCKS5 proxy.
-
-### Manual Docker Run
-
-```bash
-docker run -d \
-  --name uptime-monitor \
-  -p 8080:8080 \
-  -v $(pwd)/config:/config:ro \
-  -v $(pwd)/data:/data \
-  -e DASHBOARD_PASSWORD=changeme \
-  -e POLL_INTERVAL=30s \
-  -e LOG_LEVEL=info \
-  --network host \
-  --restart unless-stopped \
-  uptime-monitor:latest
-```
-
-### Tailscale Hosts
-
-For hosts only reachable via Tailscale, use `network_mode: host` and configure hosts with `connection: tailscale`:
-
-```yaml
-hosts:
-  - name: remote-db
-    connection: tailscale
-    endpoint: 100.x.y.z    # Tailscale IP
-    user: monitor
-    key_path: /keys/remote-db
-```
 
 ## Dashboard
 
@@ -529,9 +399,11 @@ Split monolithic `storage.go` (564 lines) into 10 focused files with explicit in
 ### Dashboard (`internal/dashboard`)
 
 - Chart.js rendered client-side from JSON fetched from `/api/host/:id/metrics` and `/api/host/:id/metric/:metric`
+- Design system: Nord-inspired dark/light themes, persisted toggle, themed charts (see ADR-0006)
 - Interface picker on host pages defaults to `eth0` and hides virtual interfaces (veth/br/docker)
 - Network byte counters shown as per-second rates (converted server-side)
 - Session-based auth with configurable `Secure` cookie flag
+- Templates and static assets (CSS, JS, vendored Chart.js) embedded via `go:embed`; no CDN dependencies
 
 ## Retention Policy
 

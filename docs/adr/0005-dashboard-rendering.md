@@ -1,7 +1,7 @@
 # ADR 0005: Dashboard Chart Rendering
 
 ## Status
-Accepted
+Accepted (superseded in part by ADR-0006 for theming)
 
 ## Context
 The host, compare, and monitor pages originally rendered charts via HTMX partial fragments served from `/api/host/:id/metric/:metric`. During the chart-fix work (issue #19) we found this architecture was fragile:
@@ -16,7 +16,7 @@ The host, compare, and monitor pages originally rendered charts via HTMX partial
 - `/api/host/:id/metrics` and `/api/host/:id/metric/:metric` return JSON series (supporting `timeRange` and `resolution` query params)
 - `/api/compare` returns JSON for `metric`, `hosts`, `timeRange`, `resolution`
 - Templates draw charts from the fetched data; interface pickers and time-range changes re-fetch JSON and rebuild charts
-- htmx is no longer used for metric panels (dead `<script>` tags remain in templates pending Phase 2 cleanup)
+- htmx was fully removed in the Phase 2 redesign (issue #20); templates and static assets are embedded via `go:embed` and themed by the design system (ADR-0006)
 
 ## Consequences
 - **Positive**: single source of truth for data (the JSON API); canvases owned by Chart.js with no DOM swap races; time-range switching is one fetch + rebuild; compare page can plot multiple hosts with one request
