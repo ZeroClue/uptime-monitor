@@ -52,3 +52,23 @@ type Cleanup interface {
 type Migrator interface {
 	Migrate() error
 }
+
+// AlertRuleStore defines the interface for alert rule persistence.
+type AlertRuleStore interface {
+	GetAlertRules(ctx context.Context) ([]AlertRule, error)
+	GetAlertRule(ctx context.Context, id int64) (*AlertRule, error)
+	CreateAlertRule(ctx context.Context, rule *AlertRule) (int64, error)
+	UpdateAlertRule(ctx context.Context, rule *AlertRule) error
+	DeleteAlertRule(ctx context.Context, id int64) error
+	GetAlertRulesForMetric(ctx context.Context, metric string) ([]AlertRule, error)
+}
+
+// NotificationChannelStore defines the interface for notification channel persistence.
+type NotificationChannelStore interface {
+	GetNotificationChannels(ctx context.Context) ([]NotificationChannel, error)
+	GetNotificationChannel(ctx context.Context, id int64) (*NotificationChannel, error)
+	CreateNotificationChannel(ctx context.Context, channel *NotificationChannel) (int64, error)
+	UpdateNotificationChannel(ctx context.Context, channel *NotificationChannel) error
+	DeleteNotificationChannel(ctx context.Context, id int64) error
+	GetEnabledNotificationChannels(ctx context.Context) ([]NotificationChannel, error)
+}
