@@ -37,9 +37,19 @@
         <canvas id="compareChart"></canvas>
     </div>
 </div>
+<table class="data-table" id="compareTable" hidden>
+    <thead>
+        <tr>
+            <th>Host</th>
+            <th>Last Value</th>
+        </tr>
+    </thead>
+    <tbody></tbody>
+</table>
 <script>
     let chart = null;
     let hosts = [];
+    let autoLoadOnInit = false;
 
     function cssVar(name) {
         return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -68,7 +78,18 @@
         };
     }
 
-    function initHosts() {
+    function fmtLast(v) {
+        if (v === null || v === undefined) return '—';
+        const metric = document.getElementById('metric').value;
+        const pct = /pct$/.test(metric);
+        if (pct) return v.toFixed(1) + '%';
+        if (Math.abs(v) >= 1e9) return (v / 1e9).toFixed(2) + 'G';
+        if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+        if (Math.abs(v) >= 1e3) return (v / 1e3).toFixed(1) + 'k';
+        return v.toFixed(2);
+    }
+
+    function initHosts(selected) {
         const select = document.getElementById('hosts');
         fetch('/api/hosts')
             .then(r => r.json())
@@ -81,28 +102,62 @@
                     opt.textContent = h.name;
                     select.appendChild(opt);
                 });
+                if (selected && selected.length) {
+                    Array.from(select.options).forEach(o => {
+                        if (selected.includes(o.value)) o.selected = true;
+                    });
+                }
+                if (autoLoadOnInit) loadCompare();
             });
     }
 
     function updateChart(data) {
         const container = document.querySelector('.chart-container-lg');
         if (chart) { chart.destroy(); chart = null; }
-        if (!data || !data.series || data.series.length === 0 || !data.labels || data.labels.length === 0) {
+        const hasData = data && data.series && data.series.length > 0 && data.labels && data.labels.length > 0;
+        if (!hasData) {
             container.innerHTML = '<div class="empty">No data in range</div>';
-            return;
+        } else {
+            container.innerHTML = '<canvas id="compareChart"></canvas>';
+            const ctx = document.getElementById('compareChart').getContext('2d');
+            const colors = palette();
+            const datasets = data.series.map((s, i) => ({
+                label: s.host, data: s.data.map(d => d[1]), borderColor: colors[i % colors.length],
+                fill: false, tension: 0.1, pointRadius: 0
+            }));
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: { labels: data.labels, datasets },
+                options: chartOptions()
+            });
         }
-        container.innerHTML = '<canvas id="compareChart"></canvas>';
-        const ctx = document.getElementById('compareChart').getContext('2d');
-        const colors = palette();
-        const datasets = data.series.map((s, i) => ({
-            label: s.host, data: s.data.map(d => d[1]), borderColor: colors[i % colors.length],
-            fill: false, tension: 0.1, pointRadius: 0
-        }));
-        chart = new Chart(ctx, {
-            type: 'line',
-            data: { labels: data.labels, datasets },
-            options: chartOptions()
-        });
+
+        // per-host last-value table
+        const table = document.getElementById('compareTable');
+        const tbody = table.querySelector('tbody');
+        if (data && data.series && data.series.length) {
+            tbody.innerHTML = data.series.map(s => {
+                const last = s.data && s.data.length ? s.data[s.data.length - 1][1] : null;
+                const when = s.data && s.data.length ? new Date(s.data[s.data.length - 1][0] * 1000).toLocaleTimeString() : '—';
+                return '<tr><td>' + s.host + '</td><td class="num mono">' + fmtLast(last) + '</td></tr>';
+            }).join('');
+            table.hidden = false;
+        } else {
+            table.hidden = true;
+        }
+    }
+
+    function syncUrl() {
+        const metric = document.getElementById('metric').value;
+        const selected = Array.from(document.getElementById('hosts').selectedOptions).map(o => o.value).filter(v => v !== '');
+        const timeRange = document.getElementById('timeRange').value;
+        const resolution = document.getElementById('resolution').value;
+        const params = new URLSearchParams();
+        params.set('metric', metric);
+        if (selected.length) params.set('hosts', selected.join(','));
+        params.set('timeRange', timeRange);
+        params.set('resolution', resolution);
+        history.replaceState(null, '', '/compare?' + params.toString());
     }
 
     function loadCompare() {
@@ -112,13 +167,26 @@
         const timeRange = document.getElementById('timeRange').value;
         const resolution = document.getElementById('resolution').value;
         const url = '/api/compare?metric=' + encodeURIComponent(metric) + '&hosts=' + selected.join(',') + '&timeRange=' + timeRange + '&resolution=' + resolution;
+        syncUrl();
         fetch(url, { headers: { 'Accept': 'application/json' } })
             .then(r => r.json())
             .then(updateChart)
             .catch(err => console.error('Failed to load compare:', err));
     }
 
-    document.addEventListener('DOMContentLoaded', initHosts);
+    document.addEventListener('DOMContentLoaded', function () {
+        const params = new URLSearchParams(window.location.search);
+        const pMetric = params.get('metric');
+        const pHosts = params.get('hosts');
+        const pRange = params.get('timeRange');
+        const pRes = params.get('resolution');
+        if (pMetric) document.getElementById('metric').value = pMetric;
+        if (pRange) document.getElementById('timeRange').value = pRange;
+        if (pRes) document.getElementById('resolution').value = pRes;
+        if (pMetric && pHosts) autoLoadOnInit = true;
+        initHosts(pHosts ? pHosts.split(',') : null);
+        if (pMetric && pHosts) loadCompare();
+    });
     ['metric', 'hosts', 'timeRange', 'resolution'].forEach(id => {
         document.getElementById(id).addEventListener('change', loadCompare);
     });
