@@ -28,3 +28,16 @@ uptime-monitor-*
 *.orig
 *.bak
 .superpowers/
+
+# Secrets and per-environment data (kept out of the build context; mounted at runtime)
+.env
+.env.*
+config/
+data/
+tailscale-state/
+
+# Repo tooling not needed for the image build
+.agents/
+.claude/
+docs/
+skills-lock.json
