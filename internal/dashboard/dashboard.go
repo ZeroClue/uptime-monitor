@@ -3,10 +3,12 @@ package dashboard
 import (
 	"context"
 	"crypto/rand"
+	"embed"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -16,6 +18,9 @@ import (
 	"github.com/ZeroClue/uptime-monitor/internal/storage"
 )
 
+//go:embed templates static
+var embeddedFiles embed.FS
+
 type Server struct {
 	password     string
 	db           *storage.DB
@@ -23,21 +28,50 @@ type Server struct {
 	logger       *slog.Logger
 	server       *http.Server
 	sessions     map[string]time.Time
-	templates    *template.Template
+	templates    map[string]*template.Template
+	static       http.Handler
 	cookieSecure bool
 }
 
 func NewServer(password string, db *storage.DB, sched *scheduler.Scheduler, logger *slog.Logger, cookieSecure bool) *Server {
-	tmpl := template.Must(template.New("").ParseGlob("internal/dashboard/templates/*.html"))
-	return &Server{
+	s := &Server{
 		password:     password,
 		db:           db,
 		sched:        sched,
 		logger:       logger,
 		sessions:     make(map[string]time.Time),
-		templates:    tmpl,
 		cookieSecure: cookieSecure,
 	}
+	s.loadTemplates()
+	staticSub, err := fs.Sub(embeddedFiles, "static")
+	if err != nil {
+		logger.Error("failed to open embedded static dir", "error", err)
+		staticSub = nil
+	}
+	if staticSub != nil {
+		s.static = http.StripPrefix("/static/", http.FileServer(http.FS(staticSub)))
+	}
+	return s
+}
+
+func (s *Server) loadTemplates() {
+	pages := []string{"index", "host", "compare", "projects", "alerts", "monitor"}
+	tmpls := make(map[string]*template.Template, len(pages)+1)
+	for _, p := range pages {
+		t, err := template.ParseFS(embeddedFiles, "templates/base.html", "templates/"+p+".html")
+		if err != nil {
+			s.logger.Error("failed to parse template", "page", p, "error", err)
+			continue
+		}
+		tmpls[p+".html"] = t
+	}
+	t, err := template.ParseFS(embeddedFiles, "templates/login.html")
+	if err != nil {
+		s.logger.Error("failed to parse login template", "error", err)
+	} else {
+		tmpls["login.html"] = t
+	}
+	s.templates = tmpls
 }
 
 func (s *Server) Run(ctx context.Context) {
@@ -53,9 +87,14 @@ func (s *Server) Run(ctx context.Context) {
 	mux.HandleFunc("/monitor", s.authMiddleware(s.handleMonitor))
 	mux.HandleFunc("/api/", s.authMiddleware(s.handleAPI))
 	mux.HandleFunc("/api/hosts", s.authMiddleware(s.handleAPIHosts))
+	mux.HandleFunc("/api/hosts/status", s.authMiddleware(s.handleAPIHostsStatus))
 	mux.HandleFunc("/api/host/", s.authMiddleware(s.handleAPIHost))
 	mux.HandleFunc("/api/compare", s.authMiddleware(s.handleAPICompare))
 	mux.HandleFunc("/api/alerts", s.authMiddleware(s.handleAPIAlerts))
+	mux.HandleFunc("/api/monitor", s.authMiddleware(s.handleAPIMonitor))
+	if s.static != nil {
+		mux.Handle("/static/", s.static)
+	}
 
 	s.server = &http.Server{
 		Addr:    ":8080",
@@ -163,12 +202,29 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	statuses := s.sched.GetAllHostStatuses()
+	type hostBrief struct {
+		ID   int64    `json:"id"`
+		Name string   `json:"name"`
+		Tags []string `json:"tags"`
+	}
+	briefs := make([]hostBrief, 0, len(hosts))
+	for _, h := range hosts {
+		briefs = append(briefs, hostBrief{ID: h.ID, Name: h.Name, Tags: h.Tags})
+	}
+	hostsJSON, err := json.Marshal(briefs)
+	if err != nil {
+		s.logger.Error("failed to marshal hosts", "error", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
 	data := struct {
-		Hosts    []storage.Host
-		Statuses map[int64]*scheduler.HostStatus
+		Hosts     []storage.Host
+		HostsJSON template.JS
+		Statuses  map[int64]*scheduler.HostStatus
 	}{
-		Hosts:    hosts,
-		Statuses: statuses,
+		Hosts:     hosts,
+		HostsJSON: template.JS(hostsJSON),
+		Statuses:  statuses,
 	}
 	s.render(w, "index.html", data)
 }
@@ -300,6 +356,68 @@ func (s *Server) handleAPIHosts(w http.ResponseWriter, r *http.Request) {
 	result := make([]HostInfo, len(hosts))
 	for i, h := range hosts {
 		result[i] = HostInfo{ID: h.ID, Name: h.Name}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+type HostStatusSummary struct {
+	HostID int64   `json:"host_id"`
+	Name   string  `json:"name"`
+	Status string  `json:"status"`
+	CPU    *float64 `json:"cpu_pct"`
+	Mem    *float64 `json:"mem_pct"`
+	Uptime *float64 `json:"uptime_seconds"`
+}
+
+func (s *Server) handleAPIHostsStatus(w http.ResponseWriter, r *http.Request) {
+	hosts, err := s.db.GetHosts()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	statuses := s.sched.GetAllHostStatuses()
+
+	result := make([]HostStatusSummary, 0, len(hosts))
+	for _, h := range hosts {
+		summary := HostStatusSummary{
+			HostID: h.ID,
+			Name:   h.Name,
+		}
+
+		if st, ok := statuses[h.ID]; ok {
+			switch {
+			case st.ConsecutiveFails == 0:
+				summary.Status = "ok"
+			case st.ConsecutiveFails < 3:
+				summary.Status = "warning"
+			default:
+				summary.Status = "down"
+			}
+		} else {
+			summary.Status = "unknown"
+		}
+
+		ctx := r.Context()
+		user, err1 := s.db.GetLatestSample(ctx, h.ID, "cpu.user_pct")
+		system, err2 := s.db.GetLatestSample(ctx, h.ID, "cpu.system_pct")
+		if err1 == nil && err2 == nil && user != nil && system != nil {
+			cpu := user.Value + system.Value
+			summary.CPU = &cpu
+		}
+		used, err1 := s.db.GetLatestSample(ctx, h.ID, "mem.used_bytes")
+		total, err2 := s.db.GetLatestSample(ctx, h.ID, "mem.total_bytes")
+		if err1 == nil && err2 == nil && used != nil && total != nil && total.Value > 0 {
+			mem := used.Value / total.Value * 100
+			summary.Mem = &mem
+		}
+		if up, err := s.db.GetLatestSample(ctx, h.ID, "uptime.seconds"); err == nil && up != nil {
+			summary.Uptime = &up.Value
+		}
+
+		result = append(result, summary)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -565,6 +683,42 @@ func (s *Server) handleAPICompare(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleAPIMonitor(w http.ResponseWriter, r *http.Request) {
+	statuses := s.sched.GetAllHostStatuses()
+	hosts, _ := s.db.GetHosts()
+
+	type hostStatusInfo struct {
+		HostID           int64  `json:"host_id"`
+		Name             string `json:"name"`
+		LastCollector    string `json:"last_collector"`
+		LastSuccess      string `json:"last_success"`
+		ConsecutiveFails int    `json:"consecutive_fails"`
+		LastError        string `json:"last_error"`
+	}
+
+	result := make([]hostStatusInfo, 0, len(hosts))
+	for _, h := range hosts {
+		info := hostStatusInfo{HostID: h.ID, Name: h.Name}
+		if st, ok := statuses[h.ID]; ok {
+			info.LastCollector = st.LastCollector
+			info.LastSuccess = ""
+			if !st.LastSuccess.IsZero() {
+				info.LastSuccess = st.LastSuccess.Format("2006-01-02 15:04:05")
+			}
+			info.ConsecutiveFails = st.ConsecutiveFails
+			info.LastError = st.LastError
+		}
+		result = append(result, info)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"db_size_mb": s.db.DBSizeMB(),
+		"hosts":      result,
+		"interval":   "30s",
+	})
+}
+
 func (s *Server) handleAPIAlerts(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		action := r.URL.Query().Get("action")
@@ -599,7 +753,14 @@ func (s *Server) handleAPIAlerts(w http.ResponseWriter, r *http.Request) {
 	// GET - list alerts
 	hostID := r.URL.Query().Get("host_id")
 	if hostID == "" {
-		http.Error(w, "host_id required", http.StatusBadRequest)
+		alerts, err := s.db.GetAllAlerts(r.Context())
+		if err != nil {
+			s.logger.Error("failed to get alerts", "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(alerts)
 		return
 	}
 
@@ -621,8 +782,18 @@ func parseInt64(s string) int64 {
 }
 
 func (s *Server) render(w http.ResponseWriter, name string, data interface{}) {
+	tmpl, ok := s.templates[name]
+	if !ok {
+		s.logger.Error("template not found", "template", name)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := s.templates.ExecuteTemplate(w, name, data); err != nil {
+	entry := "base"
+	if name == "login.html" {
+		entry = "login.html"
+	}
+	if err := tmpl.ExecuteTemplate(w, entry, data); err != nil {
 		s.logger.Error("template render failed", "template", name, "error", err)
 		http.Error(w, "Internal error", http.StatusInternalServerError)
 	}

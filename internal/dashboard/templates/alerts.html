@@ -1,59 +1,129 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>Alerts - Uptime Monitor</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <script src="https://cdn.jsdelivr.net/npm/htmx.org@1.9.10"></script>
-    <style>
-        body { font-family: system-ui, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .alert { background: white; border-radius: 8px; padding: 15px; margin-bottom: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border-left: 4px solid; }
-        .alert.warning { border-color: #e65100; }
-        .alert.critical { border-color: #c62828; }
-        .alert.down { border-color: #616161; }
-        .alert-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-        .alert-title { font-weight: bold; }
-        .alert-meta { font-size: 0.85em; color: #666; }
-        .btn-ack { background: #0066cc; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 0.85em; }
-        .btn-ack:hover { background: #0052a3; }
-        .btn-ack.acked { background: #616161; cursor: default; }
-        .empty { color: #666; text-align: center; padding: 60px 0; }
-        .alert.acked { opacity: 0.6; }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>Alerts</h1>
-        <a href="/">← Back to hosts</a>
+{{define "title"}}Alerts{{end}}
+{{define "content"}}
+<div class="header">
+    <h1>Alerts</h1>
+    <span class="sub" id="alertCount">0 active</span>
+</div>
+<div class="controls">
+    <div class="segmented" role="group" aria-label="Alert severity filter">
+        <button type="button" class="seg-btn active" data-filter="all" onclick="setFilter('all')">All <span class="badge" data-badge="all"></span></button>
+        <button type="button" class="seg-btn" data-filter="warning" onclick="setFilter('warning')">Warning <span class="badge" data-badge="warning"></span></button>
+        <button type="button" class="seg-btn" data-filter="critical" onclick="setFilter('critical')">Critical <span class="badge" data-badge="critical"></span></button>
+        <button type="button" class="seg-btn" data-filter="down" onclick="setFilter('down')">Down <span class="badge" data-badge="down"></span></button>
     </div>
-    {{range .Alerts}}
-    <div class="alert {{if eq .Severity "critical"}}critical{{else if eq .Type "collection_failure"}}down{{else}}warning{{end}}{{if .AcknowledgedAt}} acked{{end}}">
-        <div class="alert-header">
-            <span class="alert-title">{{if .HostName}}{{.HostName}}{{else}}Host #{{.HostID}}{{end}}: {{.Type}}</span>
-            {{if .AcknowledgedAt}}<button class="btn-ack acked">Acknowledged</button>{{else}}<button class="btn-ack" data-alert-id="{{.ID}}" onclick="acknowledgeAlert(this)">Acknowledge</button>{{end}}
-        </div>
-        <div class="alert-meta">
-            {{if .Metric}}{{.Metric}}: {{end}}{{.Message}} · Severity: {{.Severity}} · Fired: {{.FiredAt.Format "2006-01-02 15:04:05"}}
-            {{if .SilencedUntil}} · Silenced until {{.SilencedUntil.Format "2006-01-02 15:04:05"}}{{end}}
-        </div>
-    </div>
-    {{else}}
-    <div class="empty">No alerts</div>
-    {{end}}
-    <script>
-        function acknowledgeAlert(btn) {
-            const id = btn.getAttribute('data-alert-id');
-            fetch('/api/alerts?action=acknowledge&id=' + id, { method: 'POST' })
-                .then(r => {
-                    if (!r.ok) throw new Error('HTTP ' + r.status);
-                    const alert = btn.closest('.alert');
-                    alert.classList.add('acked');
-                    btn.classList.add('acked');
-                    btn.textContent = 'Acknowledged';
-                })
-                .catch(err => console.error('Failed to acknowledge alert:', err));
+    <span class="last-updated mono" id="lastUpdated">—</span>
+</div>
+<div id="alertList"></div>
+<script>
+    let alerts = [];
+    let filter = 'all';
+
+    function severityOf(a) {
+        if (a.Severity === 'critical') return 'critical';
+        if (a.Type === 'collection_failure') return 'down';
+        return 'warning';
+    }
+
+    function fmtTime(t) {
+        if (!t) return '—';
+        return new Date(t).toLocaleString();
+    }
+
+    function fmtVal(v) {
+        if (v === null || v === undefined) return '';
+        if (Math.abs(v) >= 1e9) return (v / 1e9).toFixed(2) + 'G';
+        if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+        if (Math.abs(v) >= 1e3) return (v / 1e3).toFixed(1) + 'k';
+        return v.toFixed(2);
+    }
+
+    function renderCounts() {
+        const active = alerts.filter(a => !a.AcknowledgedAt);
+        const counts = { all: active.length, warning: 0, critical: 0, down: 0 };
+        active.forEach(a => counts[severityOf(a)]++);
+        document.querySelectorAll('.badge').forEach(b => {
+            const k = b.getAttribute('data-badge');
+            b.textContent = counts[k] || '';
+        });
+        document.getElementById('alertCount').textContent = active.length + ' active';
+    }
+
+    function render() {
+        const list = document.getElementById('alertList');
+        const visible = filter === 'all' ? alerts : alerts.filter(a => severityOf(a) === filter);
+        if (!visible.length) {
+            list.innerHTML = '<div class="empty">No alerts</div>';
+            return;
         }
-    </script>
-</body>
-</html>
+        list.innerHTML = visible.map(a => {
+            const sev = severityOf(a);
+            const acked = !!a.AcknowledgedAt;
+            const host = a.HostName || ('Host #' + a.HostID);
+            const ackBtn = acked
+                ? '<button class="btn-ack acked" disabled>✓ Acknowledged</button>'
+                : '<button class="btn-ack" data-alert-id="' + a.ID + '" onclick="acknowledgeAlert(this)">Acknowledge</button>';
+            const val = a.Value !== undefined ? ' (value ' + fmtVal(a.Value) + ')' : '';
+            const silence = a.SilencedUntil ? ' · Silenced until ' + fmtTime(a.SilencedUntil) : '';
+            return '<div class="alert ' + sev + (acked ? ' acked' : '') + '">' +
+                '<div class="alert-header">' +
+                    '<span class="alert-title"><span class="dot ' + sev + '" aria-hidden="true"></span> ' + host + ': ' + a.Type + '</span>' +
+                    ackBtn +
+                '</div>' +
+                '<div class="alert-meta">' +
+                    (a.Metric ? a.Metric + ': ' : '') + (a.Message || '') + val +
+                    ' · ' + sev.toUpperCase() + ' · Fired: ' + fmtTime(a.FiredAt) + silence +
+                '</div>' +
+            '</div>';
+        }).join('');
+        renderCounts();
+    }
+
+    function setFilter(f) {
+        filter = f;
+        document.querySelectorAll('.seg-btn').forEach(b =>
+            b.classList.toggle('active', b.getAttribute('data-filter') === f)
+        );
+        render();
+    }
+
+    function fetchAlerts() {
+        return fetch('/api/alerts', { headers: { 'Accept': 'application/json' } })
+            .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+            .then(data => {
+                alerts = data || [];
+                render();
+                document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString();
+            })
+            .catch(err => {
+                document.getElementById('lastUpdated').textContent = 'refresh failed: ' + err.message;
+            });
+    }
+
+    function acknowledgeAlert(btn) {
+        const id = btn.getAttribute('data-alert-id');
+        fetch('/api/alerts?action=acknowledge&id=' + id, { method: 'POST' })
+            .then(r => {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                const alert = alerts.find(a => String(a.ID) === id);
+                if (alert) alert.AcknowledgedAt = new Date().toISOString();
+                render();
+            })
+            .catch(err => console.error('Failed to acknowledge alert:', err));
+    }
+
+    let refreshTimer = null;
+
+    function startRefresh() {
+        clearInterval(refreshTimer);
+        refreshTimer = setInterval(() => {
+            if (document.hidden) return;
+            fetchAlerts();
+        }, 60000);
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        fetchAlerts();
+        startRefresh();
+    });
+</script>
+{{end}}

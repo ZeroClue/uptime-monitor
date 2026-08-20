@@ -1,0 +1,29 @@
+{{define "base"}}<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" id="theme-color-meta" content="#11151c">
+    <title>{{block "title" .}}Uptime Monitor{{end}}</title>
+    <link rel="stylesheet" href="/static/app.css">
+    <script src="/static/chart.min.js" defer></script>
+    <script src="/static/app.js" defer></script>
+</head>
+<body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <nav class="topnav" aria-label="Main navigation">
+        <a class="brand" href="/">uptime-monitor</a>
+        <div class="nav-links">
+            <a href="/" data-nav="hosts">Hosts</a>
+            <a href="/compare" data-nav="compare">Compare</a>
+            <a href="/projects" data-nav="projects">Projects</a>
+            <a href="/alerts" data-nav="alerts">Alerts</a>
+            <a href="/monitor" data-nav="monitor">Monitor</a>
+        </div>
+        <button id="theme-toggle" class="theme-toggle" aria-label="Toggle theme" aria-pressed="false">☾</button>
+    </nav>
+    <main id="main" class="container">
+        {{template "content" .}}
+    </main>
+</body>
+</html>{{end}}

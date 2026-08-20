@@ -1,248 +1,330 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>{{.Name}} - Uptime Monitor</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <script src="https://cdn.jsdelivr.net/npm/htmx.org@1.9.10"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
-    <style>
-        body { font-family: system-ui, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .header h1 { margin: 0; }
-        .back { color: #666; text-decoration: none; }
-        .back:hover { color: #000; }
-        .controls { background: white; padding: 15px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .controls select, .controls button { padding: 8px 12px; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; }
-        .controls button { background: #f5f5f5; cursor: pointer; }
-        .controls button.active { background: #0066cc; color: white; border-color: #0066cc; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(500px, 1fr)); gap: 20px; }
-        .panel { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .panel h3 { margin: 0 0 15px 0; }
-        .chart-container { height: 300px; position: relative; }
-        .meta { font-size: 0.85em; color: #666; margin-bottom: 15px; }
-        .tags { margin-top: 10px; }
-        .tag { display: inline-block; background: #e3f2fd; color: #1565c0; padding: 2px 8px; border-radius: 12px; font-size: 0.75em; margin-right: 5px; }
-        .panel-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-        .panel-head h3 { margin: 0; }
-        .panel-head select { padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.85em; }
-        .loading, .empty { color: #666; text-align: center; padding: 60px 0; }
-        .error { color: #c62828; text-align: center; padding: 60px 0; }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>{{.Name}}</h1>
-        <a href="/" class="back">← Back to hosts</a>
-    </div>
-    <div class="meta">{{.Connection}}://{{.Endpoint}}:{{.Port}} · User: {{.User}} · Tags: {{range .Tags}}<span class="tag">{{.}}</span>{{end}} · <span id="uptimeLabel">Uptime: —</span></div>
-    <div class="controls">
-        <label>Time range: </label>
-        <select id="timeRange" onchange="loadMetrics()">
-            <option value="1h">Last hour</option>
-            <option value="6h" selected>Last 6 hours</option>
-            <option value="24h">Last 24 hours</option>
-            <option value="7d">Last 7 days</option>
-            <option value="30d">Last 30 days</option>
-        </select>
-        <label>Resolution: </label>
-        <select name="resolution" id="resolution" onchange="loadMetrics()">
-            <option value="raw">Raw (30s)</option>
-            <option value="1m" selected>1 minute</option>
-            <option value="1h">1 hour</option>
-        </select>
-    </div>
-    <div id="charts" class="grid">
-        <div id="loading" class="loading">Loading metrics…</div>
-    </div>
-    <script>
-        const HOST_ID = {{.ID}};
-        const PALETTE = ['#0066cc', '#e65100', '#2e7d32', '#c62828', '#6a1b9a', '#00838f', '#f57c00', '#006064', '#311b92', '#b71c1c'];
-        const charts = {};
-        let allMetrics = {};
-        let netInterfaces = {};
+{{define "title"}}{{.Name}}{{end}}
+{{define "content"}}
+<div class="header">
+    <h1>{{.Name}}</h1>
+    <span id="uptimeLabel" class="uptime-label">Uptime: —</span>
+</div>
+<div class="meta">{{.Connection}}://{{.Endpoint}}:{{.Port}} · User: {{.User}} · Tags: {{range .Tags}}<span class="tag">{{.}}</span>{{end}}</div>
+<div class="controls">
+    <label for="timeRange">Time range</label>
+    <select id="timeRange" onchange="onControlChange()">
+        <option value="1h">Last hour</option>
+        <option value="6h" selected>Last 6 hours</option>
+        <option value="24h">Last 24 hours</option>
+        <option value="7d">Last 7 days</option>
+        <option value="30d">Last 30 days</option>
+    </select>
+    <label for="resolution">Resolution</label>
+    <select name="resolution" id="resolution" onchange="onControlChange()">
+        <option value="raw">Raw (30s)</option>
+        <option value="1m" selected>1 minute</option>
+        <option value="1h">1 hour</option>
+    </select>
+</div>
+<div id="charts" class="grid-panels">
+    <div id="loading" class="loading">Loading…</div>
+</div>
+<script>
+    const HOST_ID = {{.ID}};
+    const charts = {};
+    let allMetrics = {};
+    let netInterfaces = {};
 
-        const PHYSICAL_RE = /^(eth|enp|ens|en|wlan|wlp|tailscale)/;
+    const PHYSICAL_RE = /^(eth|enp|ens|en|wlan|wlp|tailscale)/;
 
-        function metricLabel(name, prefix) {
-            return name.startsWith(prefix) ? name.slice(prefix.length) : name;
-        }
+    function cssVar(name) {
+        return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    }
 
-        function groupNetByInterface(metrics) {
-            const ifaces = {};
-            for (const [key, data] of Object.entries(metrics)) {
-                const m = key.match(/^net\.(.+?)\.(rx_bytes|tx_bytes|rx_packets|tx_packets|errors)$/);
-                if (m && data && data.length) {
-                    if (!ifaces[m[1]]) ifaces[m[1]] = {};
-                    ifaces[m[1]][m[2]] = data;
-                }
+    function palette() {
+        return [
+            cssVar('--series-1'), cssVar('--series-2'), cssVar('--series-3'),
+            cssVar('--series-4'), cssVar('--series-5'), cssVar('--series-6'),
+            cssVar('--accent'), cssVar('--ok'), cssVar('--warn'), cssVar('--crit')
+        ];
+    }
+
+    function metricLabel(name, prefix) {
+        return name.startsWith(prefix) ? name.slice(prefix.length) : name;
+    }
+
+    function groupNetByInterface(metrics) {
+        const ifaces = {};
+        for (const [key, data] of Object.entries(metrics)) {
+            const m = key.match(/^net\.(.+?)\.(rx_bytes|tx_bytes|rx_packets|tx_packets|errors)$/);
+            if (m && data && data.length) {
+                if (!ifaces[m[1]]) ifaces[m[1]] = {};
+                ifaces[m[1]][m[2]] = data;
             }
-            return ifaces;
         }
+        return ifaces;
+    }
 
-        function pickDefaultInterface(ifaces) {
-            const names = Object.keys(ifaces).sort();
-            const physical = names.filter(n => PHYSICAL_RE.test(n) && !n.startsWith('veth'));
-            return (physical[0] || names[0] || '');
+    function pickDefaultInterface(ifaces) {
+        const names = Object.keys(ifaces).sort();
+        const physical = names.filter(n => PHYSICAL_RE.test(n) && !n.startsWith('veth'));
+        return (physical[0] || names[0] || '');
+    }
+
+    function toRate(data) {
+        const out = [];
+        for (let i = 1; i < data.length; i++) {
+            const dt = data[i][0] - data[i - 1][0];
+            if (dt <= 0) continue;
+            out.push([data[i][0], Math.max(0, (data[i][1] - data[i - 1][1]) / dt)]);
         }
+        return out;
+    }
 
-        function toRate(data) {
-            const out = [];
-            for (let i = 1; i < data.length; i++) {
-                const dt = data[i][0] - data[i - 1][0];
-                if (dt <= 0) continue;
-                out.push([data[i][0], Math.max(0, (data[i][1] - data[i - 1][1]) / dt)]);
+    function labelsFrom(data) {
+        return data.map(d => new Date(d[0] * 1000).toLocaleTimeString());
+    }
+
+    function chartOptions() {
+        return {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { display: true, position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } }
+            },
+            scales: {
+                x: { ticks: { color: cssVar('--text-dim'), font: { family: cssVar('--mono') } }, grid: { color: cssVar('--border') } },
+                y: { beginAtZero: false, ticks: { maxTicksLimit: 6, color: cssVar('--text-dim'), font: { family: cssVar('--mono') } }, grid: { color: cssVar('--border') } }
             }
-            return out;
-        }
+        };
+    }
 
-        function labelsFrom(data) {
-            return data.map(d => new Date(d[0] * 1000).toLocaleTimeString());
-        }
-
-        function renderChart(canvasId, title, series) {
-            const canvas = document.getElementById(canvasId);
-            if (!canvas) return;
+    function renderChart(canvasId, title, series) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+        const container = canvas.parentElement;
+        let emptyMsg = container.querySelector('.empty');
+        if (!series.length) {
             if (charts[canvasId]) { charts[canvasId].destroy(); delete charts[canvasId]; }
-            if (!series.length) {
-                canvas.parentElement.innerHTML = '<div class="empty">No data in range</div>';
-                return;
+            canvas.style.display = 'none';
+            if (!emptyMsg) {
+                emptyMsg = document.createElement('div');
+                emptyMsg.className = 'empty';
+                emptyMsg.textContent = 'No data in range';
+                container.appendChild(emptyMsg);
             }
-            const labels = labelsFrom(series[0].data);
-            const datasets = series.map((s, i) => ({
-                label: s.label,
-                data: s.data.map(d => d[1]),
-                borderColor: PALETTE[i % PALETTE.length],
-                backgroundColor: PALETTE[i % PALETTE.length] + '22',
-                fill: false,
-                tension: 0.1,
-                pointRadius: 0,
-                borderWidth: 1.5
-            }));
-            charts[canvasId] = new Chart(canvas.getContext('2d'), {
-                type: 'line',
-                data: { labels, datasets },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    interaction: { mode: 'index', intersect: false },
-                    plugins: { legend: { display: true, position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } },
-                    scales: { y: { beginAtZero: false, ticks: { maxTicksLimit: 6 } } }
-                }
-            });
+            return;
+        }
+        canvas.style.display = '';
+        if (emptyMsg) emptyMsg.remove();
+        const colors = palette();
+        const labels = labelsFrom(series[0].data);
+        const datasets = series.map((s, i) => ({
+            label: s.label,
+            data: s.data.map(d => d[1]),
+            borderColor: colors[i % colors.length],
+            backgroundColor: colors[i % colors.length] + '22',
+            fill: false,
+            tension: 0.1,
+            pointRadius: 0,
+            borderWidth: 1.5
+        }));
+        if (charts[canvasId]) {
+            const c = charts[canvasId];
+            c.data.labels = labels;
+            c.data.datasets = datasets;
+            c.update();
+            return;
+        }
+        charts[canvasId] = new Chart(canvas.getContext('2d'), {
+            type: 'line',
+            data: { labels, datasets },
+            options: chartOptions()
+        });
+    }
+
+    function buildNetPanel() {
+        netInterfaces = groupNetByInterface(allMetrics);
+        const names = Object.keys(netInterfaces);
+
+        let panel = document.getElementById('netPanel');
+        if (!names.length) {
+            if (panel) panel.remove();
+            return;
         }
 
-        function buildNetPanel() {
-            let existing = document.getElementById('netPanel');
-            if (existing) existing.remove();
-
-            netInterfaces = groupNetByInterface(allMetrics);
-            const names = Object.keys(netInterfaces);
-            if (!names.length) return;
-
-            const panel = document.createElement('div');
+        if (!panel) {
+            panel = document.createElement('div');
             panel.className = 'panel';
             panel.id = 'netPanel';
             panel.innerHTML = '<div class="panel-head"><h3>Network</h3><select id="netIface"></select></div><div class="chart-container"><canvas id="netChart"></canvas></div>';
             document.getElementById('charts').appendChild(panel);
-
-            const select = document.getElementById('netIface');
-            const isVirtual = n => /^(veth|br-|docker|virbr|lo)/.test(n);
-            const sorted = names.sort((a, b) => {
-                const ap = isVirtual(a) ? 1 : 0;
-                const bp = isVirtual(b) ? 1 : 0;
-                return ap - bp || a.localeCompare(b);
-            });
-            sorted.forEach(n => {
-                const opt = document.createElement('option');
-                opt.value = n;
-                opt.textContent = n;
-                select.appendChild(opt);
-            });
-            select.value = pickDefaultInterface(netInterfaces) || sorted[0];
-            select.onchange = function () { renderNetChart(this.value); };
-            renderNetChart(select.value);
         }
 
-        function renderNetChart(iface) {
-            const metrics = netInterfaces[iface];
-            const series = [];
-            for (const key of ['rx_bytes', 'tx_bytes']) {
-                if (metrics && metrics[key] && metrics[key].length) {
-                    series.push({ label: key, data: toRate(metrics[key]) });
-                }
+        const select = document.getElementById('netIface');
+        const previous = select.value;
+        const isVirtual = n => /^(veth|br-|docker|virbr|lo)/.test(n);
+        const sorted = names.sort((a, b) => {
+            const ap = isVirtual(a) ? 1 : 0;
+            const bp = isVirtual(b) ? 1 : 0;
+            return ap - bp || a.localeCompare(b);
+        });
+        select.innerHTML = '';
+        sorted.forEach(n => {
+            const opt = document.createElement('option');
+            opt.value = n;
+            opt.textContent = n;
+            select.appendChild(opt);
+        });
+        if (sorted.includes(previous)) select.value = previous;
+        else select.value = pickDefaultInterface(netInterfaces) || sorted[0];
+        select.onchange = function () { renderNetChart(this.value); };
+        renderNetChart(select.value);
+    }
+
+    function renderNetChart(iface) {
+        const metrics = netInterfaces[iface];
+        const series = [];
+        for (const key of ['rx_bytes', 'tx_bytes']) {
+            if (metrics && metrics[key] && metrics[key].length) {
+                series.push({ label: key, data: toRate(metrics[key]) });
             }
-            renderChart('netChart', 'Network: ' + iface, series);
         }
+        renderChart('netChart', 'Network: ' + iface, series);
+    }
 
-        function panelFor(title, canvasId, series) {
-            let panel = document.getElementById(canvasId + 'Panel');
+    function lastValue(series) {
+        return series && series.length ? series[series.length - 1][1] : null;
+    }
+
+    function fmtVal(v, isPct) {
+        if (v === null || v === undefined) return '—';
+        if (isPct) return v.toFixed(1) + '%';
+        if (Math.abs(v) >= 1e9) return (v / 1e9).toFixed(2) + 'G';
+        if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+        if (Math.abs(v) >= 1e3) return (v / 1e3).toFixed(1) + 'k';
+        return v.toFixed(2);
+    }
+
+    function pickReadout(series) {
+        // prefer a *_pct series for the headline value; fall back to first
+        const pct = series.find(s => /_pct$/.test(s.label));
+        const chosen = pct || series[0];
+        return {
+            value: lastValue(chosen.data),
+            isPct: /_pct$/.test(chosen.label),
+            label: chosen.label
+        };
+    }
+
+    function panelFor(title, canvasId, series) {
+        let panel = document.getElementById(canvasId + 'Panel');
+        if (!series.length) {
             if (panel) panel.remove();
-            if (!series.length) return;
+            return;
+        }
+        if (!panel) {
             panel = document.createElement('div');
             panel.className = 'panel';
             panel.id = canvasId + 'Panel';
-            panel.innerHTML = '<div class="panel-head"><h3>' + title + '</h3></div><div class="chart-container"><canvas id="' + canvasId + '"></canvas></div>';
+            panel.innerHTML = '<div class="panel-head"><h3>' + title + '</h3><span class="panel-value" id="' + canvasId + 'Value"></span></div><div class="chart-container"><canvas id="' + canvasId + '"></canvas></div>';
             document.getElementById('charts').appendChild(panel);
-            renderChart(canvasId, title, series);
+        }
+        renderChart(canvasId, title, series);
+        const ro = pickReadout(series);
+        const el = document.getElementById(canvasId + 'Value');
+        if (el && ro.value !== null) {
+            el.textContent = fmtVal(ro.value, ro.isPct);
+            el.title = (ro.label || title) + ' (latest)';
+        }
+    }
+
+    function renderPanels() {
+        const groups = { cpu: {}, mem: {}, disk: {} };
+        for (const [key, data] of Object.entries(allMetrics)) {
+            if (!data || !data.length) continue;
+            if (key.startsWith('cpu.')) groups.cpu[key] = data;
+            else if (key.startsWith('mem.')) groups.mem[key] = data;
+            else if (key.startsWith('disk.')) groups.disk[key] = data;
         }
 
-        function renderPanels() {
-            const groups = { cpu: {}, mem: {}, disk: {} };
-            for (const [key, data] of Object.entries(allMetrics)) {
-                if (!data || !data.length) continue;
-                if (key.startsWith('cpu.')) groups.cpu[key] = data;
-                else if (key.startsWith('mem.')) groups.mem[key] = data;
-                else if (key.startsWith('disk.')) groups.disk[key] = data;
-            }
+        const cpuKeys = Object.keys(groups.cpu).filter(k => k.startsWith('cpu.load_') === false);
+        const loadKeys = Object.keys(groups.cpu).filter(k => k.startsWith('cpu.load_'));
+        const memKeys = Object.keys(groups.mem);
+        const diskKeys = Object.keys(groups.disk);
 
-            const cpuKeys = Object.keys(groups.cpu).filter(k => k.startsWith('cpu.load_') === false);
-            const loadKeys = Object.keys(groups.cpu).filter(k => k.startsWith('cpu.load_'));
-            const memKeys = Object.keys(groups.mem);
-            const diskKeys = Object.keys(groups.disk);
+        panelFor('CPU', 'cpuChart', cpuKeys.map(k => ({ label: metricLabel(k, 'cpu.'), data: groups.cpu[k] })));
+        panelFor('Load Average', 'loadChart', loadKeys.map(k => ({ label: metricLabel(k, 'cpu.'), data: groups.cpu[k] })));
+        panelFor('Memory', 'memChart', memKeys.map(k => ({ label: metricLabel(k, 'mem.'), data: groups.mem[k] })));
+        panelFor('Disk', 'diskChart', diskKeys.map(k => ({ label: metricLabel(k, 'disk.'), data: groups.disk[k] })));
 
-            panelFor('CPU (%)', 'cpuChart', cpuKeys.map(k => ({ label: metricLabel(k, 'cpu.'), data: groups.cpu[k] })));
-            panelFor('Load Average', 'loadChart', loadKeys.map(k => ({ label: metricLabel(k, 'cpu.'), data: groups.cpu[k] })));
-            panelFor('Memory', 'memChart', memKeys.map(k => ({ label: metricLabel(k, 'mem.'), data: groups.mem[k] })));
-            panelFor('Disk', 'diskChart', diskKeys.map(k => ({ label: metricLabel(k, 'disk.'), data: groups.disk[k] })));
+        buildNetPanel();
+    }
 
-            buildNetPanel();
-        }
+    function loadMetrics() {
+        const timeRange = document.getElementById('timeRange').value;
+        const resolution = document.getElementById('resolution').value;
+        const url = '/api/host/' + HOST_ID + '/metrics?timeRange=' + timeRange + '&resolution=' + resolution;
+        fetch(url, { headers: { 'Accept': 'application/json' } })
+            .then(r => {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
+            .then(data => {
+                allMetrics = data.metrics || {};
+                const loading = document.getElementById('loading');
+                if (loading) loading.remove();
+                renderPanels();
+                updateUptimeLabel();
+            })
+            .catch(err => {
+                const loading = document.getElementById('loading');
+                if (loading) {
+                    loading.textContent = 'Failed to load metrics: ' + err.message;
+                    loading.className = 'error';
+                }
+            });
+    }
 
-        function loadMetrics() {
-            const timeRange = document.getElementById('timeRange').value;
-            const resolution = document.getElementById('resolution').value;
-            const url = '/api/host/' + HOST_ID + '/metrics?timeRange=' + timeRange + '&resolution=' + resolution;
-            document.getElementById('loading').style.display = 'block';
-            fetch(url, { headers: { 'Accept': 'application/json' } })
-                .then(r => {
-                    if (!r.ok) throw new Error('HTTP ' + r.status);
-                    return r.json();
-                })
-                .then(data => {
-                    allMetrics = data.metrics || {};
-                    document.getElementById('loading').style.display = 'none';
-                    renderPanels();
-                    updateUptimeLabel();
-                })
-                .catch(err => {
-                    document.getElementById('loading').textContent = 'Failed to load metrics: ' + err.message;
-                    document.getElementById('loading').className = 'error';
-                });
-        }
+    function updateUptimeLabel() {
+        const series = allMetrics['uptime.seconds'];
+        const label = document.getElementById('uptimeLabel');
+        if (!series || !series.length) return;
+        const secs = series[series.length - 1][1];
+        const d = Math.floor(secs / 86400);
+        const h = Math.floor((secs % 86400) / 3600);
+        const m = Math.floor((secs % 3600) / 60);
+        label.textContent = 'Uptime: ' + (d > 0 ? d + 'd ' : '') + h + 'h ' + m + 'm';
+    }
 
-        function updateUptimeLabel() {
-            const series = allMetrics['uptime.seconds'];
-            const label = document.getElementById('uptimeLabel');
-            if (!series || !series.length) return;
-            const secs = series[series.length - 1][1];
-            const d = Math.floor(secs / 86400);
-            const h = Math.floor((secs % 86400) / 3600);
-            const m = Math.floor((secs % 3600) / 60);
-            label.textContent = 'Uptime: ' + (d > 0 ? d + 'd ' : '') + h + 'h ' + m + 'm';
-        }
+    let refreshTimer = null;
 
-        document.addEventListener('DOMContentLoaded', loadMetrics);
-    </script>
-</body>
-</html>
+    function syncUrl() {
+        const timeRange = document.getElementById('timeRange').value;
+        const resolution = document.getElementById('resolution').value;
+        const params = new URLSearchParams();
+        params.set('timeRange', timeRange);
+        params.set('resolution', resolution);
+        history.replaceState(null, '', '/host/' + HOST_ID + '?' + params.toString());
+    }
+
+    function onControlChange() {
+        syncUrl();
+        loadMetrics();
+    }
+
+    function startRefresh() {
+        clearInterval(refreshTimer);
+        refreshTimer = setInterval(() => {
+            if (document.hidden) return;
+            loadMetrics();
+        }, 30000);
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        const params = new URLSearchParams(window.location.search);
+        const pRange = params.get('timeRange');
+        const pRes = params.get('resolution');
+        if (pRange) document.getElementById('timeRange').value = pRange;
+        if (pRes) document.getElementById('resolution').value = pRes;
+        loadMetrics();
+        startRefresh();
+    });
+</script>
+{{end}}

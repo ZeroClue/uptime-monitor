@@ -435,12 +435,12 @@ hosts:
 
 | Route | Description |
 |-------|-------------|
-| `/` | Host list with sparklines and status |
-| `/host/:id` | Per-host detail with CPU, memory, disk, network graphs |
-| `/compare` | Multi-host metric comparison |
+| `/` | Host list — sortable table (default) or tiles, live CPU/MEM/Uptime, 30s refresh; `?view=table|tiles` |
+| `/host/:id` | Per-host detail — themed panels (CPU, Load, Memory, Disk, Network) with live readouts, 30s refresh; `?timeRange=&resolution=` |
+| `/compare` | Multi-host metric comparison + per-host last-value table; manual refresh, deep-linkable selections |
 | `/projects` | Project health overview (tag-based + explicit) |
-| `/alerts` | Alert panel with acknowledge/silence |
-| `/monitor` | Self-monitoring (collector status, latency, errors) |
+| `/alerts` | Alert panel with severity filter, acknowledge/silence, 60s refresh |
+| `/monitor` | Self-monitoring (collector status, stats), 30s refresh |
 | `/healthz` | Liveness/readiness endpoint |
 | `/metrics` | Prometheus-format metrics (experimental) |
 
@@ -449,11 +449,17 @@ hosts:
 | Endpoint | Description |
 |----------|-------------|
 | `GET /api/hosts` | List all hosts (JSON) |
+| `GET /api/hosts/status` | Live per-host values (status, CPU, MEM, uptime) for the host list |
 | `GET /api/host/:id/metrics?timeRange=&resolution=` | All metrics for a host (JSON) |
 | `GET /api/host/:id/metric/:metric?timeRange=&resolution=` | Single metric series (JSON; `mem.used_pct`/`disk.used_pct` derived, net byte counters converted to rates) |
 | `GET /api/compare?metric=&hosts=&timeRange=&resolution=` | Multi-host comparison data |
-| `GET /api/alerts` | List alerts; `POST ?action=acknowledge&id=` or `?action=silence&id=&duration=` |
+| `GET /api/alerts` | List all alerts; `POST ?action=acknowledge&id=` or `?action=silence&id=&duration=` |
+| `GET /api/monitor` | Self-monitoring stats + collector status |
 | `GET /api/projects` | Project list with health status |
+
+### Theming
+
+The dashboard defaults to a dark Grafana-style theme with a light option. The toggle (top-right) is persisted in `localStorage` and carries across the login/auth boundary. Charts re-read their colors from the active theme on toggle.
 
 ## Development
 

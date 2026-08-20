@@ -1,30 +1,27 @@
+{{define "title"}}Login{{end}}
 <!DOCTYPE html>
-<html>
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="utf-8">
-    <title>Login - Uptime Monitor</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        body { font-family: system-ui, sans-serif; max-width: 400px; margin: 100px auto; padding: 20px; }
-        .form-group { margin-bottom: 15px; }
-        label { display: block; margin-bottom: 5px; font-weight: bold; }
-        input[type="password"] { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
-        button { width: 100%; padding: 10px; background: #0066cc; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
-        button:hover { background: #0052a3; }
-        .error { color: #cc0000; margin-bottom: 15px; }
-    </style>
+    <meta name="theme-color" id="theme-color-meta" content="#11151c">
+    <title>Login - Uptime Monitor</title>
+    <link rel="stylesheet" href="/static/app.css">
+    <script src="/static/app.js" defer></script>
 </head>
-<body>
-    <h1>Uptime Monitor</h1>
-    {{if .Error}}
-    <div class="error">{{.Error}}</div>
-    {{end}}
-    <form method="post">
-        <div class="form-group">
-            <label for="password">Password</label>
-            <input type="password" id="password" name="password" required autocomplete="current-password">
-        </div>
-        <button type="submit">Login</button>
-    </form>
+<body class="login-page">
+    <main class="login-container">
+        <h1>Uptime Monitor</h1>
+        {{if .Error}}
+        <div class="error" role="alert">{{.Error}}</div>
+        {{end}}
+        <form method="post" class="login-form">
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required autocomplete="current-password">
+            </div>
+            <button type="submit">Login</button>
+        </form>
+    </main>
 </body>
 </html>

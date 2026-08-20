@@ -52,16 +52,17 @@ hosts:
 | Core metric schema | cpu, mem, disk, net, uptime namespaces (see CONTEXT.md) | Covers 90% of infra monitoring needs |
 | GPU / per-process / containers | Deferred to v2 | Out of scope for MVP |
 | Real-time updates | Poll on load + manual refresh | No WebSocket complexity |
-| Dashboard views | Host list, host detail, multi-host compare, alert panel, project health overview | Covers operational workflows |
-| Dashboard framework | Go + htmx + Chart.js | Single binary, no build step, lightweight |
+| Dashboard views | Host list (table/tiles), host detail, multi-host compare, alert panel, project health overview | Covers operational workflows |
+| Dashboard framework | Go + Chart.js (embedded via go:embed) | Single binary, no build step, lightweight; htmx removed |
+| Dashboard theme | Dark default + light toggle, persisted in localStorage | Grafana-style ops look; charts restyle on toggle |
 | Dashboard auth | Single shared password (env var) | Simplest viable auth |
 | Host auth | SSH key per host (configurable per host) | Standard, flexible |
 | Project model | Tag-based + explicit projects | Ad-hoc queries + structured dashboards |
 | Tailscale mode | External (host network) by default | In-container option for v2 |
 | Config reload | Docker restart (simplest) | File watcher as enhancement |
 | Monitor observability | /healthz + dashboard monitor page | Self-metrics (Prometheus) deferred |
-| Chart rendering | Fetch JSON from `/api/host/:id/metrics`, render client-side with Chart.js | htmx target-swap destroyed canvases; single fetch on DOMContentLoaded |
+| Chart rendering | Fetch JSON from `/api/host/:id/metrics`, render client-side with Chart.js; live values via `/api/hosts/status`, `/api/monitor` | htmx removed; single fetch on DOMContentLoaded + interval refresh |
 | Net metrics display | Cumulative counters converted to per-second rates client-side (host) and server-side (compare) | Raw counters produce meaningless rising lines |
-| Interface picker | Defaults to eth0; veth/br/docker filtered out | Avoids chart spam on virtual interfaces |
+| Interface picker | Defaults to eth0; veth/br/docker sorted last | Avoids chart spam on virtual interfaces |
 | Alert thresholds | Upper-bound by default; `below: true` opts into lower-bound (uptime.seconds) | uptime must alert when *under* a threshold |
 | SSH command output | `LogLevel=ERROR` suppresses host-key warning; parsers scan for first numeric token | "Permanently added" stderr line was parsed as field[0], zeroing uptime/load |

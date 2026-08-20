@@ -14,7 +14,6 @@ RUN curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.noarmor.gpg | t
 WORKDIR /app
 
 COPY build/uptime-monitor /app/uptime-monitor
-COPY internal/dashboard/templates /app/internal/dashboard/templates
 
 EXPOSE 8080
 

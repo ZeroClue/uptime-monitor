@@ -1,60 +1,36 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>Projects - Uptime Monitor</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <script src="https://cdn.jsdelivr.net/npm/htmx.org@1.9.10"></script>
-    <style>
-        body { font-family: system-ui, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
-        .card { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-        .status { padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; }
-        .status.ok { background: #e8f5e9; color: #2e7d32; }
-        .status.warning { background: #fff3e0; color: #e65100; }
-        .status.critical { background: #fce4ec; color: #c62828; }
-        .status.down { background: #fafafa; color: #616161; }
-        .meta { font-size: 0.85em; color: #666; }
-        .host-list { margin-top: 10px; font-size: 0.85em; }
-        .host-list li { margin: 5px 0; }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>Projects</h1>
-        <a href="/">← Back to hosts</a>
-    </div>
-    <div class="grid">
-        {{range .Projects}}
-        <div class="card">
-            <div class="card-header">
-                <h2>{{.Name}}</h2>
-                <span class="status {{.Health}}">{{.Health}}</span>
-            </div>
-            <div class="meta">
-                {{if eq .Type "tag_query"}}
-                    Tag query: {{.TagQuery}}
-                {{else}}
-                    Explicit: {{len .HostIDs}} hosts
-                {{end}}
-            </div>
-            <ul class="host-list">
-                {{range .HostIDs}}
-                    <li>Host ID: {{.}}</li>
-                {{end}}
-            </ul>
+{{define "title"}}Projects{{end}}
+{{define "content"}}
+<div class="header">
+    <h1>Projects</h1>
+</div>
+<div class="grid">
+    {{range .Projects}}
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">{{.Name}}</h2>
+            <span class="status {{.Health}}">{{.Health}}</span>
         </div>
-        {{else}}
-        <div class="card">
-            <div class="card-header">
-                <h2>No projects configured</h2>
-                <span class="status ok">OK</span>
-            </div>
-            <div class="meta">Add projects to config/projects.yaml</div>
+        <div class="meta">
+            {{if eq .Type "tag_query"}}
+                Tag query: {{.TagQuery}}
+            {{else}}
+                Explicit: {{len .HostIDs}} hosts
+            {{end}}
         </div>
-        {{end}}
+        <ul class="host-list">
+            {{range .HostIDs}}
+                <li>Host ID: {{.}}</li>
+            {{end}}
+        </ul>
     </div>
-</body>
-</html>
+    {{else}}
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">No projects configured</h2>
+            <span class="status ok">OK</span>
+        </div>
+        <div class="meta">Add projects to config/projects.yaml</div>
+    </div>
+    {{end}}
+</div>
+{{end}}

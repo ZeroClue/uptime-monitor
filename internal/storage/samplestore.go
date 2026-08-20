@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/ZeroClue/uptime-monitor/internal/collector"
@@ -56,6 +57,22 @@ func (db *DB) GetSamples(ctx context.Context, hostID int64, metric string, from,
 		samples = append(samples, s)
 	}
 	return samples, nil
+}
+
+// GetLatestSample returns the most recent sample for a host+metric, or nil if none exists.
+func (db *DB) GetLatestSample(ctx context.Context, hostID int64, metric string) (*Sample, error) {
+	query := `SELECT host_id, metric, value, timestamp, collector FROM samples_raw WHERE host_id = ? AND metric = ? ORDER BY timestamp DESC LIMIT 1`
+	var s Sample
+	var ts int64
+	err := db.QueryRowContext(ctx, query, hostID, metric).Scan(&s.HostID, &s.Metric, &s.Value, &ts, &s.Collector)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	s.Timestamp = time.Unix(ts, 0)
+	return &s, nil
 }
 
 func (db *DB) GetAvailableMetrics(ctx context.Context, hostID int64) ([]string, error) {

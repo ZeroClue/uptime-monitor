@@ -1,61 +1,172 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>Hosts - Uptime Monitor</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <script src="https://cdn.jsdelivr.net/npm/htmx.org@1.9.10"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
-    <style>
-        body { font-family: system-ui, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .header h1 { margin: 0; }
-        .logout { color: #666; text-decoration: none; }
-        .logout:hover { color: #000; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 20px; }
-        .card { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-        .card-title { font-size: 1.2em; font-weight: bold; margin: 0; }
-        .status { padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: bold; }
-        .status.ok { background: #e8f5e9; color: #2e7d32; }
-        .status.warning { background: #fff3e0; color: #e65100; }
-        .status.critical { background: #fce4ec; color: #c62828; }
-        .status.down { background: #fafafa; color: #616161; }
-        .sparkline { height: 80px; margin: 10px 0; }
-        .meta { font-size: 0.85em; color: #666; }
-        .tags { margin-top: 10px; }
-        .tag { display: inline-block; background: #e3f2fd; color: #1565c0; padding: 2px 8px; border-radius: 12px; font-size: 0.75em; margin-right: 5px; }
-        a { color: #0066cc; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>Hosts</h1>
-        <a href="/logout" class="logout">Logout</a>
+{{define "title"}}Hosts{{end}}
+{{define "content"}}
+<div class="header">
+    <h1>Hosts</h1>
+    <span class="sub">{{len .Hosts}} host(s)</span>
+</div>
+<div class="controls">
+    <div class="segmented" role="group" aria-label="Host view">
+        <button type="button" class="seg-btn active" data-view="table" onclick="setView('table')">Table</button>
+        <button type="button" class="seg-btn" data-view="tiles" onclick="setView('tiles')">Tiles</button>
     </div>
-    <div class="grid">
-        {{range .Hosts}}
-        <div class="card">
-            <div class="card-header">
-                <h2 class="card-title">{{.Name}}</h2>
-                {{with index $.Statuses .ID}}
-                <span class="status {{if eq .ConsecutiveFails 0}}ok{{else if lt .ConsecutiveFails 3}}warning{{else}}down{{end}}">
-                    {{if eq .ConsecutiveFails 0}}OK{{else if lt .ConsecutiveFails 3}}DEGRADED{{else}}DOWN{{end}}
-                </span>
-                {{else}}
-                <span class="status down">UNKNOWN</span>
-                {{end}}
-            </div>
-            <div class="meta">
-                {{.Connection}}://{{.Endpoint}}:{{.Port}} · Last seen: {{with index $.Statuses .ID}}{{.LastSuccess.Format "15:04:05"}}{{else}}never{{end}}
-            </div>
-            <div class="tags">
-                {{range .Tags}}<span class="tag">{{.}}</span>{{end}}
-            </div>
-            <a href="/host/{{.ID}}">View details →</a>
-        </div>
-        {{end}}
-    </div>
-</body>
-</html>
+    <span class="last-updated mono" id="lastUpdated">—</span>
+</div>
+
+<table class="data-table host-table" id="hostTable">
+    <thead>
+        <tr>
+            <th data-sort="name" tabindex="0" onclick="sortBy('name')" onkeydown="if(event.key==='Enter')sortBy('name')">Host <span class="sort-arrow"></span></th>
+            <th data-sort="status" tabindex="0" onclick="sortBy('status')" onkeydown="if(event.key==='Enter')sortBy('status')">Status <span class="sort-arrow"></span></th>
+            <th data-sort="cpu" tabindex="0" onclick="sortBy('cpu')" onkeydown="if(event.key==='Enter')sortBy('cpu')">CPU <span class="sort-arrow"></span></th>
+            <th data-sort="mem" tabindex="0" onclick="sortBy('mem')" onkeydown="if(event.key==='Enter')sortBy('mem')">MEM <span class="sort-arrow"></span></th>
+            <th data-sort="uptime" tabindex="0" onclick="sortBy('uptime')" onkeydown="if(event.key==='Enter')sortBy('uptime')">Uptime <span class="sort-arrow"></span></th>
+        </tr>
+    </thead>
+    <tbody id="hostRows"></tbody>
+</table>
+
+<div class="grid host-tiles" id="hostTiles" hidden></div>
+
+<script>
+    const HOSTS = {{.HostsJSON}};
+    const VIEW_KEY = 'uptime-monitor-host-view';
+
+    let view = 'table';
+    let summaries = {};
+    let sortKey = 'name';
+    let sortDir = 1;
+    let refreshTimer = null;
+
+    function statusInfo(id) {
+        const st = summaries[id] || {};
+        const s = st.status || 'unknown';
+        let label = 'UNKNOWN';
+        if (s === 'ok') label = 'OK';
+        else if (s === 'warning') label = 'WARN';
+        else if (s === 'down') label = 'DOWN';
+        return { cls: s, label: label };
+    }
+
+    function fmtPct(v) {
+        if (v === null || v === undefined) return '—';
+        return v.toFixed(1) + '%';
+    }
+
+    function fmtUptime(secs) {
+        if (secs === null || secs === undefined) return '—';
+        const d = Math.floor(secs / 86400);
+        const h = Math.floor((secs % 86400) / 3600);
+        const m = Math.floor((secs % 3600) / 60);
+        return (d > 0 ? d + 'd ' : '') + h + 'h ' + m + 'm';
+    }
+
+    function rowFor(host) {
+        const info = statusInfo(host.id);
+        const sum = summaries[host.id] || {};
+        const tags = (host.tags || []).map(t => '<span class="tag">' + t + '</span>').join('');
+        return {
+            name: host.name,
+            status: info.cls,
+            statusLabel: info.label,
+            cpu: sum.cpu_pct,
+            mem: sum.mem_pct,
+            uptime: sum.uptime_seconds,
+            tagsHtml: tags,
+            id: host.id
+        };
+    }
+
+    function renderRows() {
+        const rows = HOSTS.map(rowFor);
+        const dir = sortDir;
+        rows.sort((a, b) => {
+            let av = a[sortKey], bv = b[sortKey];
+            if (sortKey === 'name') { av = a.name; bv = b.name; }
+            if (sortKey === 'status') { av = a.status; bv = b.status; }
+            if (av === bv) return 0;
+            if (av === null || av === undefined) return 1;
+            if (bv === null || bv === undefined) return -1;
+            if (typeof av === 'string') return av.localeCompare(bv) * dir;
+            return (av - bv) * dir;
+        });
+
+        document.querySelectorAll('#hostTable th').forEach(th => {
+            const k = th.getAttribute('data-sort');
+            const arrow = th.querySelector('.sort-arrow');
+            arrow.textContent = k === sortKey ? (dir === 1 ? '▲' : '▼') : '';
+        });
+
+        const tbody = document.getElementById('hostRows');
+        tbody.innerHTML = rows.map(r =>
+            '<tr><td><a href="/host/' + r.id + '">' + r.name + '</a><div class="tags">' + r.tagsHtml + '</div></td>' +
+            '<td><span class="status ' + r.status + '">' + r.statusLabel + '</span></td>' +
+            '<td class="num mono">' + fmtPct(r.cpu) + '</td>' +
+            '<td class="num mono">' + fmtPct(r.mem) + '</td>' +
+            '<td class="num mono">' + fmtUptime(r.uptime) + '</td></tr>'
+        ).join('');
+
+        const tiles = document.getElementById('hostTiles');
+        tiles.innerHTML = rows.map(r =>
+            '<div class="card"><div class="card-header"><a class="card-title" href="/host/' + r.id + '">' + r.name + '</a><span class="status ' + r.status + '">' + r.statusLabel + '</span></div>' +
+            '<div class="tile-grid">' +
+            '<div class="metric"><span class="metric-label">CPU</span><span class="metric-value mono">' + fmtPct(r.cpu) + '</span></div>' +
+            '<div class="metric"><span class="metric-label">MEM</span><span class="metric-value mono">' + fmtPct(r.mem) + '</span></div>' +
+            '<div class="metric"><span class="metric-label">Uptime</span><span class="metric-value mono">' + fmtUptime(r.uptime) + '</span></div>' +
+            '</div><div class="tags">' + r.tagsHtml + '</div></div>'
+        ).join('');
+    }
+
+    function applyView(v) {
+        view = v === 'tiles' ? 'tiles' : 'table';
+        document.querySelectorAll('.seg-btn').forEach(b =>
+            b.classList.toggle('active', b.getAttribute('data-view') === view)
+        );
+        document.getElementById('hostTable').hidden = view !== 'table';
+        document.getElementById('hostTiles').hidden = view !== 'tiles';
+        try { localStorage.setItem(VIEW_KEY, view); } catch (e) {}
+        history.replaceState(null, '', view === 'tiles' ? '/?view=tiles' : '/');
+    }
+
+    function setView(v) {
+        applyView(v);
+    }
+
+    function sortBy(key) {
+        if (sortKey === key) { sortDir = -sortDir; }
+        else { sortKey = key; sortDir = 1; }
+        renderRows();
+    }
+
+    function fetchSummary() {
+        return fetch('/api/hosts/status', { headers: { 'Accept': 'application/json' } })
+            .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+            .then(data => {
+                summaries = {};
+                data.forEach(s => { summaries[s.host_id] = s; });
+                renderRows();
+                const el = document.getElementById('lastUpdated');
+                el.textContent = new Date().toLocaleTimeString();
+            })
+            .catch(err => {
+                const el = document.getElementById('lastUpdated');
+                el.textContent = 'refresh failed: ' + err.message;
+            });
+    }
+
+    function startRefresh() {
+        clearInterval(refreshTimer);
+        refreshTimer = setInterval(() => {
+            if (document.hidden) return;
+            fetchSummary();
+        }, 30000);
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        let v = new URLSearchParams(window.location.search).get('view');
+        if (!v) { try { v = localStorage.getItem(VIEW_KEY); } catch (e) {} }
+        applyView(v || 'table');
+        fetchSummary();
+        startRefresh();
+    });
+</script>
+{{end}}
