@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **TCP/UDP connection states** — collectors parse `/proc/net/{tcp,tcp6,udp,udp6}` and `psutil.net_connections`, emitting `net.tcp.*` / `net.udp.*` state counts (ESTABLISHED, LISTEN, TIME_WAIT, etc.); host detail gains a "Connections" panel with a TCP/UDP selector and per-state bar chart.
 - **Filesystem details (multi-mount + inodes)** — collectors parse `df` for all mounts and `df -i` for inodes, emitting `disk.<mount>.{total,used,free}_bytes` and `inodes_used_pct`; host detail Disk panel gains a mount selector with inode usage readout. Threshold wildcards (`disk.*.used_pct`) still match.
 - **Host tags filtering** — host list page gets a row of tag chips derived from all hosts' tags; clicking a chip filters both table and tiles views client-side; state reflected in URL query param for deep-linking.
+- **Alert history page** — dedicated page at `/alerts/history` showing full alert archive (active, acknowledged, silenced, resolved) with filters by severity, status, and host; silence/unmute and acknowledge actions; deep-linkable filters via URL query params.
 
 ## [0.3.0] - 2026-08-20
 

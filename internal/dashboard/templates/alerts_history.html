@@ -1,0 +1,250 @@
+{{define "title"}}Alert History{{end}}
+{{define "content"}}
+<div class="header">
+    <h1>Alert History</h1>
+    <span class="sub" id="alertCount">0 alerts</span>
+</div>
+<div class="controls">
+    <div class="segmented" role="group" aria-label="Alert severity filter">
+        <button type="button" class="seg-btn active" data-filter="all" onclick="setSeverityFilter('all')">All <span class="badge" data-badge="all"></span></button>
+        <button type="button" class="seg-btn" data-filter="warning" onclick="setSeverityFilter('warning')">Warning <span class="badge" data-badge="warning"></span></button>
+        <button type="button" class="seg-btn" data-filter="critical" onclick="setSeverityFilter('critical')">Critical <span class="badge" data-badge="critical"></span></button>
+        <button type="button" class="seg-btn" data-filter="down" onclick="setSeverityFilter('down')">Down <span class="badge" data-badge="down"></span></button>
+    </div>
+    <div class="segmented" role="group" aria-label="Alert status filter">
+        <button type="button" class="seg-btn active" data-status="all" onclick="setStatusFilter('all')">All <span class="badge" data-status-badge="all"></span></button>
+        <button type="button" class="seg-btn" data-status="active" onclick="setStatusFilter('active')">Active <span class="badge" data-status-badge="active"></span></button>
+        <button type="button" class="seg-btn" data-status="acknowledged" onclick="setStatusFilter('acknowledged')">Acknowledged <span class="badge" data-status-badge="acknowledged"></span></button>
+        <button type="button" class="seg-btn" data-status="silenced" onclick="setStatusFilter('silenced')">Silenced <span class="badge" data-status-badge="silenced"></span></button>
+        <button type="button" class="seg-btn" data-status="resolved" onclick="setStatusFilter('resolved')">Resolved <span class="badge" data-status-badge="resolved"></span></button>
+    </div>
+    <select id="hostFilter" onchange="setHostFilter(this.value)">
+        <option value="">All Hosts</option>
+    </select>
+    <span class="last-updated mono" id="lastUpdated">—</span>
+</div>
+<div id="alertList"></div>
+<script>
+    let alerts = [];
+    let severityFilter = 'all';
+    let statusFilter = 'all';
+    let hostFilter = '';
+
+    function severityOf(a) {
+        if (a.Severity === 'critical') return 'critical';
+        if (a.Type === 'collection_failure') return 'down';
+        return 'warning';
+    }
+
+    function statusOf(a) {
+        if (a.SilencedUntil && new Date(a.SilencedUntil) > new Date()) return 'silenced';
+        if (a.AcknowledgedAt) return 'acknowledged';
+        if (a.ResolvedAt) return 'resolved';
+        return 'active';
+    }
+
+    function fmtTime(t) {
+        if (!t) return '—';
+        return new Date(t).toLocaleString();
+    }
+
+    function fmtVal(v) {
+        if (v === null || v === undefined) return '';
+        if (Math.abs(v) >= 1e9) return (v / 1e9).toFixed(2) + 'G';
+        if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+        if (Math.abs(v) >= 1e3) return (v / 1e3).toFixed(1) + 'k';
+        return v.toFixed(2);
+    }
+
+    function hostOf(a) {
+        return a.HostName || ('Host #' + a.HostID);
+    }
+
+    function renderCounts() {
+        const counts = { all: alerts.length, warning: 0, critical: 0, down: 0,
+            active: 0, acknowledged: 0, silenced: 0, resolved: 0 };
+        alerts.forEach(a => {
+            counts[severityOf(a)]++;
+            counts[statusOf(a)]++;
+        });
+        document.querySelectorAll('.badge[data-badge]').forEach(b => {
+            b.textContent = counts[b.getAttribute('data-badge')] || '';
+        });
+        document.querySelectorAll('.badge[data-status-badge]').forEach(b => {
+            b.textContent = counts[b.getAttribute('data-status-badge')] || '';
+        });
+        document.getElementById('alertCount').textContent = alerts.length + ' alerts';
+    }
+
+    function render() {
+        const list = document.getElementById('alertList');
+        const visible = alerts.filter(a => {
+            if (severityFilter !== 'all' && severityOf(a) !== severityFilter) return false;
+            if (statusFilter !== 'all' && statusOf(a) !== statusFilter) return false;
+            if (hostFilter && a.HostID !== hostFilter) return false;
+            return true;
+        });
+        if (!visible.length) {
+            document.getElementById('alertList').innerHTML = '<div class="empty">No alerts match filters</div>';
+            return;
+        }
+        document.getElementById('alertList').innerHTML = visible.map(a => {
+            const sev = severityOf(a);
+            const st = statusOf(a);
+            const acked = !!a.AcknowledgedAt;
+            const silenced = a.SilencedUntil && new Date(a.SilencedUntil) > new Date();
+            const host = a.HostName || ('Host #' + a.HostID);
+            const val = a.Value !== undefined ? ' (value ' + fmtVal(a.Value) + ')' : '';
+            const silenceUntil = a.SilencedUntil ? ' · Silenced until ' + fmtTime(a.SilencedUntil) : '';
+            const resolved = a.ResolvedAt ? ' · Resolved: ' + fmtTime(a.ResolvedAt) : '';
+            const ackTime = a.AcknowledgedAt ? ' · Acknowledged: ' + fmtTime(a.AcknowledgedAt) : '';
+            let actionBtns = '';
+            if (!silenced) {
+                actionBtns += '<button class="btn-silence" data-alert-id="' + a.ID + '" onclick="silenceAlert(this)">Silence 1h</button> ';
+            } else {
+                actionBtns += '<button class="btn-silence" data-alert-id="' + a.ID + '" onclick="unsilenceAlert(this)">Unsilence</button> ';
+            }
+            if (!acked) {
+                actionBtns += '<button class="btn-ack" data-alert-id="' + a.ID + '" onclick="acknowledgeAlert(this)">Acknowledge</button>';
+            }
+            return '<div class="alert ' + severityOf(a) + ' status-' + statusOf(a) + '">' +
+                '<div class="alert-header">' +
+                    '<span class="alert-title"><span class="dot ' + sev + '" aria-hidden="true"></span> ' + hostOf(a) + ': ' + a.Type + '</span>' +
+                    '<span class="alert-actions">' + actionBtns + '</span>' +
+                '</div>' +
+                '<div class="alert-meta">' +
+                    (a.Metric ? a.Metric + ': ' : '') + (a.Message || '') + val +
+                    ' · ' + sev.toUpperCase() + ' · ' + statusOf(a).toUpperCase() +
+                    ' · Fired: ' + fmtTime(a.FiredAt) + silenceUntil + resolved + ackTime +
+                '</div>' +
+            '</div>';
+        }).join('');
+        renderCounts();
+    }
+
+    function setSeverityFilter(f) {
+        severityFilter = f;
+        document.querySelectorAll('.seg-btn[data-filter]').forEach(b =>
+            b.classList.toggle('active', b.getAttribute('data-filter') === f)
+        );
+        syncUrl();
+        render();
+    }
+
+    function setStatusFilter(f) {
+        statusFilter = f;
+        document.querySelectorAll('.seg-btn[data-status]').forEach(b =>
+            b.classList.toggle('active', b.getAttribute('data-status') === f)
+        );
+        syncUrl();
+        render();
+    }
+
+    function setHostFilter(v) {
+        hostFilter = v;
+        syncUrl();
+        render();
+    }
+
+    function syncUrl() {
+        const params = new URLSearchParams();
+        if (severityFilter !== 'all') params.set('severity', severityFilter);
+        if (statusFilter !== 'all') params.set('status', statusFilter);
+        if (hostFilter) params.set('host', hostFilter);
+        history.replaceState(null, '', '/alerts/history?' + params.toString());
+    }
+
+    function fetchAlerts() {
+        return fetch('/api/alerts', { headers: { 'Accept': 'application/json' } })
+            .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+            .then(data => {
+                alerts = data || [];
+                populateHostFilter();
+                render();
+                document.getElementById('lastUpdated').textContent = new Date().toLocaleTimeString();
+            })
+            .catch(err => {
+                document.getElementById('lastUpdated').textContent = 'refresh failed: ' + err.message;
+            });
+    }
+
+    function populateHostFilter() {
+        const select = document.getElementById('hostFilter');
+        const hostIds = new Set();
+        alerts.forEach(a => hostIds.add(String(a.HostID)));
+        const hostNames = {};
+        alerts.forEach(a => hostNames[a.HostID] = a.HostName || ('Host #' + a.HostID));
+        const existing = select.value;
+        select.innerHTML = '<option value="">All Hosts</option>';
+        Array.from(hostIds).sort((a, b) => (hostNames[Number(a)] || '').localeCompare(hostNames[Number(b)] || '')).forEach(id => {
+            const opt = document.createElement('option');
+            opt.value = id;
+            opt.textContent = hostNames[Number(id)] || ('Host #' + id);
+            select.appendChild(opt);
+        });
+        if (hostIds.has(existing)) select.value = existing;
+    }
+
+    function acknowledgeAlert(btn) {
+        const id = btn.getAttribute('data-alert-id');
+        fetch('/api/alerts?action=acknowledge&id=' + id, { method: 'POST' })
+            .then(r => {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                const alert = alerts.find(a => String(a.ID) === id);
+                if (alert) alert.AcknowledgedAt = new Date().toISOString();
+                render();
+            })
+            .catch(err => console.error('Failed to acknowledge alert:', err));
+    }
+
+    function silenceAlert(btn) {
+        const id = btn.getAttribute('data-alert-id');
+        fetch('/api/alerts?action=silence&id=' + id + '&duration=1h', { method: 'POST' })
+            .then(r => {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                const alert = alerts.find(a => String(a.ID) === id);
+                if (alert) alert.SilencedUntil = new Date(Date.now() + 3600000).toISOString();
+                render();
+            })
+            .catch(err => console.error('Failed to silence alert:', err));
+    }
+
+    function unsilenceAlert(btn) {
+        const id = btn.getAttribute('data-alert-id');
+        fetch('/api/alerts?action=silence&id=' + id + '&duration=0', { method: 'POST' })
+            .then(r => {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                const alert = alerts.find(a => String(a.ID) === id);
+                if (alert) alert.SilencedUntil = null;
+                render();
+            })
+            .catch(err => console.error('Failed to unsilence alert:', err));
+    }
+
+    let refreshTimer = null;
+
+    function startRefresh() {
+        clearInterval(refreshTimer);
+        refreshTimer = setInterval(() => {
+            if (document.hidden) return;
+            fetchAlerts();
+        }, 60000);
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+        const params = new URLSearchParams(window.location.search);
+        severityFilter = params.get('severity') || 'all';
+        statusFilter = params.get('status') || 'all';
+        hostFilter = params.get('host') || '';
+        document.querySelectorAll('.seg-btn[data-filter]').forEach(b =>
+            b.classList.toggle('active', b.getAttribute('data-filter') === severityFilter)
+        );
+        document.querySelectorAll('.seg-btn[data-status]').forEach(b =>
+            b.classList.toggle('active', b.getAttribute('data-status') === statusFilter)
+        );
+        document.getElementById('hostFilter').value = hostFilter;
+        fetchAlerts();
+        startRefresh();
+    });
+</script>
+{{end}}

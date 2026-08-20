@@ -84,6 +84,7 @@ func (s *Server) Run(ctx context.Context) {
 	mux.HandleFunc("/compare", s.authMiddleware(s.handleCompare))
 	mux.HandleFunc("/projects", s.authMiddleware(s.handleProjects))
 	mux.HandleFunc("/alerts", s.authMiddleware(s.handleAlerts))
+	mux.HandleFunc("/alerts/history", s.authMiddleware(s.handleAlertsHistory))
 	mux.HandleFunc("/monitor", s.authMiddleware(s.handleMonitor))
 	mux.HandleFunc("/api/", s.authMiddleware(s.handleAPI))
 	mux.HandleFunc("/api/hosts", s.authMiddleware(s.handleAPIHosts))
@@ -310,6 +311,16 @@ func (s *Server) handleAlerts(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "alerts.html", struct{ Alerts []storage.AlertWithHost }{Alerts: alerts})
 }
 
+func (s *Server) handleAlertsHistory(w http.ResponseWriter, r *http.Request) {
+	alerts, err := s.db.GetAllAlerts(r.Context())
+	if err != nil {
+		s.logger.Error("failed to get alerts for history", "error", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+	s.render(w, "alerts_history.html", struct{ Alerts []storage.AlertWithHost }{Alerts: alerts})
+}
+
 func (s *Server) handleMonitor(w http.ResponseWriter, r *http.Request) {
 	statuses := s.sched.GetAllHostStatuses()
 	hosts, _ := s.db.GetHosts()
@@ -363,9 +374,9 @@ func (s *Server) handleAPIHosts(w http.ResponseWriter, r *http.Request) {
 }
 
 type HostStatusSummary struct {
-	HostID int64   `json:"host_id"`
-	Name   string  `json:"name"`
-	Status string  `json:"status"`
+	HostID int64    `json:"host_id"`
+	Name   string   `json:"name"`
+	Status string   `json:"status"`
 	CPU    *float64 `json:"cpu_pct"`
 	Mem    *float64 `json:"mem_pct"`
 	Uptime *float64 `json:"uptime_seconds"`
