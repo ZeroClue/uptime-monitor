@@ -138,6 +138,37 @@ func TestParseDiskStats_Empty(t *testing.T) {
 	}
 }
 
+func TestParseConnectionStates(t *testing.T) {
+	// /proc/net/tcp format: sl local_address rem_address st tx_queue rx_queue tr tm->when retrnsmt uid timeout inode
+	// st: 01=ESTABLISHED, 02=SYN_SENT, 03=SYN_RECV, 04=FIN_WAIT1, 05=FIN_WAIT2, 06=TIME_WAIT, 07=CLOSE, 08=CLOSE_WAIT, 09=LAST_ACK, 0A=LISTEN, 0B=CLOSING
+	tcpOutput := "sl local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt uid timeout inode\n" +
+		"   0: 0100007F:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000  1000        0 12345\n" +
+		"   1: 0100007F:1F91 0A00000A:1F90 01 00000000:00000000 00:00000000 00000000  1000        0 12346\n" +
+		"   2: 0100007F:1F92 0A00000A:1F90 06 00000000:00000000 00:00000000 00000000  1000        0 12347\n"
+	udpOutput := "sl local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt uid timeout inode\n" +
+		"   0: 00000000:0035 00000000:0000 07 00000000:00000000 00:00000000 00000000  1000        0 12348\n"
+
+	states := parseConnectionStates(tcpOutput, "tcp")
+	if states["ESTABLISHED"] != 1 || states["LISTEN"] != 1 || states["TIME_WAIT"] != 1 {
+		t.Errorf("tcp states = %+v", states)
+	}
+	if states["total"] != 3 {
+		t.Errorf("tcp total = %d", states["total"])
+	}
+
+	states = parseConnectionStates(udpOutput, "udp")
+	if states["CLOSE"] != 1 || states["total"] != 1 {
+		t.Errorf("udp states = %+v", states)
+	}
+}
+
+func TestParseConnectionStates_Empty(t *testing.T) {
+	states := parseConnectionStates("", "tcp")
+	if states["total"] != 0 {
+		t.Errorf("expected total=0 for empty output, got %+v", states)
+	}
+}
+
 func TestParseMemInfo_SwapFields(t *testing.T) {
 	output := "MemTotal:       16384000 kB\nMemFree:         1024000 kB\nMemAvailable:     8192000 kB\nSwapTotal:       2097152 kB\nSwapFree:        1048576 kB\n"
 	info, err := parseMemInfo(output)
