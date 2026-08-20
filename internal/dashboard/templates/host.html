@@ -189,6 +189,72 @@
         renderChart('netChart', 'Network: ' + iface, series);
     }
 
+    function groupCores(metrics) {
+        const cores = {};
+        for (const [key, data] of Object.entries(metrics)) {
+            const m = key.match(/^cpu\.core\.(\d+)\.(.+)$/);
+            if (m && data && data.length) {
+                if (!cores[m[1]]) cores[m[1]] = {};
+                cores[m[1]][m[2]] = data;
+            }
+        }
+        return cores;
+    }
+
+    function buildCorePanel() {
+        const cores = groupCores(allMetrics);
+        const names = Object.keys(cores).sort((a, b) => Number(a) - Number(b));
+
+        let panel = document.getElementById('corePanel');
+        if (!names.length) {
+            if (panel) panel.remove();
+            return;
+        }
+
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.className = 'panel';
+            panel.id = 'corePanel';
+            panel.innerHTML = '<div class="panel-head"><h3>CPU Cores</h3><select id="coreSelect"></select></div><div class="chart-container"><canvas id="coreChart"></canvas></div>';
+            document.getElementById('charts').appendChild(panel);
+        }
+
+        const select = document.getElementById('coreSelect');
+        const previous = select.value;
+        select.innerHTML = '';
+        const optAll = document.createElement('option');
+        optAll.value = 'all';
+        optAll.textContent = 'All cores';
+        select.appendChild(optAll);
+        names.forEach(n => {
+            const opt = document.createElement('option');
+            opt.value = n;
+            opt.textContent = 'Core ' + n;
+            select.appendChild(opt);
+        });
+        if (names.includes(previous)) select.value = previous;
+        else select.value = 'all';
+        select.onchange = function () { renderCoreChart(this.value, cores); };
+        renderCoreChart(select.value, cores);
+    }
+
+    function renderCoreChart(core, cores) {
+        const series = [];
+        if (core === 'all') {
+            const sorted = Object.keys(cores).sort((a, b) => Number(a) - Number(b));
+            for (const n of sorted) {
+                const u = cores[n].user_pct;
+                if (u && u.length) series.push({ label: 'core ' + n, data: u });
+            }
+        } else {
+            for (const key of ['user_pct', 'system_pct', 'iowait_pct', 'idle_pct']) {
+                const d = cores[core] && cores[core][key];
+                if (d && d.length) series.push({ label: key.replace('_pct', ''), data: d });
+            }
+        }
+        renderChart('coreChart', 'CPU Cores', series);
+    }
+
     function lastValue(series) {
         return series && series.length ? series[series.length - 1][1] : null;
     }
@@ -244,7 +310,7 @@
             else if (key.startsWith('disk.')) groups.disk[key] = data;
         }
 
-        const cpuKeys = Object.keys(groups.cpu).filter(k => k.startsWith('cpu.load_') === false);
+        const cpuKeys = Object.keys(groups.cpu).filter(k => !k.startsWith('cpu.load_') && !k.startsWith('cpu.core.'));
         const loadKeys = Object.keys(groups.cpu).filter(k => k.startsWith('cpu.load_'));
         const memKeys = Object.keys(groups.mem);
         const diskKeys = Object.keys(groups.disk);
@@ -255,6 +321,7 @@
         panelFor('Disk', 'diskChart', diskKeys.map(k => ({ label: metricLabel(k, 'disk.'), data: groups.disk[k] })));
 
         buildNetPanel();
+        buildCorePanel();
     }
 
     function loadMetrics() {

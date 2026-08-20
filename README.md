@@ -333,7 +333,7 @@ Metrics are named `<namespace>.<metric>` and auto-discovered by the host detail 
 
 | Namespace | Metrics |
 |-----------|---------|
-| `cpu.*` | `user_pct`, `system_pct`, `idle_pct`, `iowait_pct`, `load_1m/5m/15m` |
+| `cpu.*` | `user_pct`, `system_pct`, `idle_pct`, `iowait_pct`, `load_1m/5m/15m`, `core.N.user_pct`, `core.N.system_pct`, `core.N.idle_pct`, `core.N.iowait_pct` |
 | `mem.*` | `total_bytes`, `used_bytes`, `free_bytes`, `available_bytes`, `cached_bytes`, `swap_total_bytes`, `swap_free_bytes`, `swap_used_bytes`, derived `swap_used_pct` |
 | `disk.*` | `total_bytes`, `used_bytes`, `free_bytes` |
 | `net.<iface>.*` | `rx_bytes`, `tx_bytes`, `rx_packets`, `tx_packets`, `errors` (displayed as per-second rates) |
