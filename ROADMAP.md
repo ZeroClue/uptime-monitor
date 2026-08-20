@@ -35,30 +35,30 @@
 
 ---
 
-## 📋 Phase 2: Core Improvements (HIGH PRIORITY)
+## 📋 Phase 2: Core Improvements (HIGH PRIORITY) — COMPLETE
 
 ### Metrics Collection
-- [ ] **Swap usage** - SwapTotal/SwapFree from /proc/meminfo
-- [ ] **Per-core CPU** - individual cpuN lines from /proc/stat
-- [ ] **Disk I/O stats** - reads/writes, latency from /proc/diskstats or iostat
-- [ ] **Process count** - from /proc/loadavg or /proc/stat
-- [ ] **TCP/UDP connection states** - /proc/net/tcp*, /proc/net/udp*
-- [ ] **Filesystem details** - multiple mount points, inodes
+- [x] **Swap usage** - SwapTotal/SwapFree from /proc/meminfo
+- [x] **Per-core CPU** - individual cpuN lines from /proc/stat
+- [x] **Disk I/O stats** - reads/writes, latency from /proc/diskstats or iostat
+- [x] **Process count** - from /proc/loadavg or /proc/stat
+- [x] **TCP/UDP connection states** - /proc/net/tcp*, /proc/net/udp*
+- [x] **Filesystem details** - multiple mount points, inodes
 
 ### Alerting System (DB schema exists, needs UI)
 - [x] **Alert silencing/acknowledgment** — UI for existing DB schema (acknowledge + silence wired in v0.3.0)
-- [ ] **Alert configuration UI** - create/edit thresholds per host/project
-- [ ] **Threshold types** - CPU%, memory%, disk%, load, network
-- [ ] **Notification channels** - Email, webhook, Slack, PagerDuty
-- [ ] **Alert history page** - view past alerts, silence/unmute
+- [x] **Alert configuration UI** - create/edit thresholds per host/project
+- [x] **Threshold types** - CPU%, memory%, disk%, load, network
+- [x] **Notification channels** - Email, webhook, Slack, PagerDuty
+- [x] **Alert history page** - view past alerts, silence/unmute
 
 ### Dashboard Improvements
 - [x] **Dark mode** - CSS variables toggle (v0.3.0, persisted + themed charts)
 - [x] **Project-level views** - aggregate health across hosts (v0.3.0)
 - [x] **Compare hosts** - side-by-side charts (v0.3.0) + per-host last-value table
 - [x] **Real-time updates** - interval-based auto-refresh (30s/60s, paused when hidden)
-- [ ] **Alert configuration UI** - create/edit thresholds per host/project
-- [ ] **Host tags filtering** on main list
+- [x] **Alert configuration UI** - create/edit thresholds per host/project
+- [x] **Host tags filtering** on main list
 
 ---
 

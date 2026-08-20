@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.0] - 2026-08-20
 
 ### Added
 - **Swap + process count metrics** — collectors now emit `mem.swap_total_bytes`, `mem.swap_free_bytes`, `mem.swap_used_bytes`, derived `mem.swap_used_pct` (guarded on no-swap hosts), and `system.process_count` (procfs counts `/proc` PIDs, psutil uses `psutil.pids()`). Swap metrics appear in the host detail Memory panel via auto-discovery.
@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Filesystem details (multi-mount + inodes)** — collectors parse `df` for all mounts and `df -i` for inodes, emitting `disk.<mount>.{total,used,free}_bytes` and `inodes_used_pct`; host detail Disk panel gains a mount selector with inode usage readout. Threshold wildcards (`disk.*.used_pct`) still match.
 - **Host tags filtering** — host list page gets a row of tag chips derived from all hosts' tags; clicking a chip filters both table and tiles views client-side; state reflected in URL query param for deep-linking.
 - **Alert history page** — dedicated page at `/alerts/history` showing full alert archive (active, acknowledged, silenced, resolved) with filters by severity, status, and host; silence/unmute and acknowledge actions; deep-linkable filters via URL query params.
+- **Alert rules + notification channels to DB** — `alert_rules` and `notification_channels` tables with migration; engine reads from DB, seeds from `thresholds.yaml`; rules evaluated from DB (changes apply without restart); CRUD JSON API for rules and channels.
+- **Alert rules & channels management UI** — `/alerts/config` page with two tabs: Alert Rules (list/create/edit/delete with metric type dropdown, scope, thresholds, below toggle) and Notification Channels (list/create/edit/delete with type selector, JSON config editor, enabled toggle).
+- **Email notification channel** — SMTP email sending via `net/smtp` with plain auth; config includes smtp_host, smtp_port, username, password, from, to; UI template for config.
 
 ## [0.3.0] - 2026-08-20
 
