@@ -7,6 +7,7 @@
     <div class="segmented" role="group" aria-label="Config section">
         <button type="button" class="seg-btn active" data-section="rules" onclick="showSection('rules')">Alert Rules</button>
         <button type="button" class="seg-btn" data-section="channels" onclick="showSection('channels')">Notification Channels</button>
+        <button type="button" class="seg-btn" data-section="tokens" onclick="showSection('tokens')">API Tokens</button>
     </div>
 </div>
 
@@ -45,6 +46,25 @@
             </tr>
         </thead>
         <tbody id="channelsBody"></tbody>
+    </table>
+</div>
+
+<div id="tokensSection" hidden>
+    <div class="toolbar">
+        <button class="btn-primary" onclick="openTokenModal()">+ Add Token</button>
+    </div>
+    <table class="data-table" id="tokensTable">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Scopes</th>
+                <th>Expires</th>
+                <th>Last Used</th>
+                <th>Created</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="tokensBody"></tbody>
     </table>
 </div>
 
@@ -154,6 +174,36 @@
             </div>
             <div class="modal-actions">
                 <button type="button" class="btn-secondary" onclick="closeChannelModal()">Cancel</button>
+                <button type="submit" class="btn-primary">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Token Modal -->
+<div class="modal" id="tokenModal" hidden>
+    <div class="modal-content">
+        <h3 id="tokenModalTitle">Add API Token</h3>
+        <form id="tokenForm">
+            <input type="hidden" name="id" id="tokenId">
+            <div class="form-group">
+                <label for="tokenName">Name</label>
+                <input type="text" name="name" id="tokenName" required placeholder="e.g. Grafana API">
+            </div>
+            <div class="form-group">
+                <label for="tokenScopes">Scopes</label>
+                <select name="scopes" id="tokenScopes">
+                    <option value="read">Read</option>
+                    <option value="write">Write</option>
+                    <option value="admin">Admin</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="tokenExpires">Expires (optional)</label>
+                <input type="date" name="expires" id="tokenExpires">
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" onclick="closeTokenModal()">Cancel</button>
                 <button type="submit" class="btn-primary">Save</button>
             </div>
         </form>
@@ -360,7 +410,86 @@
         textarea.placeholder = templates[type] || '{"key": "value"}';
     }
 
-    async function submitChannel(e) {
+    async function loadTokens() {
+        tokens = await apiGet('/api/api-tokens');
+        renderTokens();
+    }
+
+    function renderTokens() {
+        const tbody = document.getElementById('tokensBody');
+        tbody.innerHTML = tokens.map(t => `
+            <tr>
+                <td>${t.name}</td>
+                <td>${t.scopes || 'read'}</td>
+                <td>${t.expires_at ? new Date(t.expires_at).toLocaleDateString() : 'Never'}</td>
+                <td>${t.last_used_at ? new Date(t.last_used_at).toLocaleString() : 'Never'}</td>
+                <td>${new Date(t.created_at).toLocaleDateString()}</td>
+                <td>
+                    <button class="btn-sm btn-danger" onclick="deleteToken(${t.id})">Delete</button>
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    function openTokenModal(token = null) {
+        const modal = document.getElementById('tokenModal');
+        const form = document.getElementById('tokenForm');
+        const title = document.getElementById('tokenModalTitle');
+        form.reset();
+        document.getElementById('tokenId').value = '';
+        if (token) {
+            title.textContent = 'Edit API Token';
+            document.getElementById('tokenId').value = token.id;
+            document.getElementById('tokenName').value = token.name;
+            document.getElementById('tokenScopes').value = token.scopes || 'read';
+            if (token.expires_at) {
+                document.getElementById('tokenExpires').value = token.expires_at.split('T')[0];
+            }
+        } else {
+            title.textContent = 'Add API Token';
+        }
+        modal.hidden = false;
+    }
+
+    function closeTokenModal() {
+        document.getElementById('tokenModal').hidden = true;
+    }
+
+    async function submitToken(e) {
+        e.preventDefault();
+        const form = e.target;
+        const data = {
+            name: form.name.value,
+            scopes: form.scopes.value || 'read',
+        };
+        if (form.expires.value) data.expires_at = form.expires.value;
+        const id = form.id.value;
+        try {
+            if (id) {
+                await apiPut('/api/api-tokens/' + id, data);
+            } else {
+                const result = await apiPost('/api/api-tokens', data);
+                alert('Token created: ' + result.token + '\nSave this token now - it will not be shown again!');
+            }
+            closeTokenModal();
+            loadTokens();
+        } catch (err) {
+            alert('Error: ' + err.message);
+        }
+    }
+
+    async function deleteToken(id) {
+        if (!confirm('Delete this API token?')) return;
+        try {
+            await apiDelete('/api/api-tokens/' + id);
+            loadTokens();
+        } catch (err) {
+            alert('Error: ' + err.message);
+        }
+    }
+
+    // Init
+    document.addEventListener('DOMContentLoaded', async () => {
         e.preventDefault();
         const form = e.target;
         const data = {
@@ -404,11 +533,13 @@
             hosts = await apiGet('/api/hosts');
             await loadRules();
             await loadChannels();
+            await loadTokens();
         } catch (err) {
             console.error('Failed to load config:', err);
         }
         document.getElementById('ruleForm').addEventListener('submit', submitRule);
         document.getElementById('channelForm').addEventListener('submit', submitChannel);
+        document.getElementById('tokenForm').addEventListener('submit', submitToken);
     });
 </script>
 <style>

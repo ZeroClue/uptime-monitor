@@ -77,6 +77,17 @@ type NotificationChannelStore interface {
 	GetEnabledNotificationChannels(ctx context.Context) ([]NotificationChannel, error)
 }
 
+// APITokenStore defines the interface for API token persistence.
+type APITokenStore interface {
+	GetAPITokens(ctx context.Context) ([]APIToken, error)
+	GetAPIToken(ctx context.Context, id int64) (*APIToken, error)
+	GetAPITokenByName(ctx context.Context, name string) (*APIToken, error)
+	CreateAPIToken(ctx context.Context, token *APIToken) (string, int64, error)
+	UpdateAPIToken(ctx context.Context, token *APIToken) error
+	DeleteAPIToken(ctx context.Context, id int64) error
+	RecordTokenUsage(ctx context.Context, id int64) error
+}
+
 // UserStore defines the interface for user persistence.
 type UserStore interface {
 	GetUser(ctx context.Context, id int64) (*User, error)

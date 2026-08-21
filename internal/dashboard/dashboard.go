@@ -99,6 +99,8 @@ func (s *Server) Run(ctx context.Context) {
 	mux.HandleFunc("/api/alert-rules/", s.authMiddleware(s.handleAPIAlertRuleByID))
 	mux.HandleFunc("/api/notification-channels", s.authMiddleware(s.handleAPINotificationChannels))
 	mux.HandleFunc("/api/notification-channels/", s.authMiddleware(s.handleAPINotificationChannelByID))
+	mux.HandleFunc("/api/api-tokens", s.authMiddleware(s.handleAPIAPITokens))
+	mux.HandleFunc("/api/api-tokens/", s.authMiddleware(s.handleAPIAPITokenByID))
 	mux.HandleFunc("/api/projects", s.authMiddleware(s.handleAPIProjects))
 	mux.HandleFunc("/api/projects/", s.authMiddleware(s.handleAPIProjectByID))
 	mux.HandleFunc("/api/monitor", s.authMiddleware(s.handleAPIMonitor))
@@ -1109,6 +1111,86 @@ func (s *Server) handleAPINotificationChannels(w http.ResponseWriter, r *http.Re
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(channel)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleAPIAPITokens(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		tokens, err := s.db.GetAPITokens(r.Context())
+		if err != nil {
+			s.logger.Error("failed to get API tokens", "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(tokens)
+	case http.MethodPost:
+		var token storage.APIToken
+		if err := json.NewDecoder(r.Body).Decode(&token); err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+		plainToken, id, err := s.db.CreateAPIToken(r.Context(), &token)
+		if err != nil {
+			s.logger.Error("failed to create API token", "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		token.ID = id
+		response := map[string]interface{}{
+			"token": plainToken,
+			"id":    id,
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(response)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleAPIAPITokenByID(w http.ResponseWriter, r *http.Request) {
+	idStr := strings.TrimPrefix(r.URL.Path, "/api/api-tokens/")
+	id := mustParseInt64(idStr)
+
+	switch r.Method {
+	case http.MethodGet:
+		token, err := s.db.GetAPIToken(r.Context(), id)
+		if err != nil {
+			s.logger.Error("failed to get API token", "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		if token == nil {
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(token)
+	case http.MethodPut:
+		var token storage.APIToken
+		if err := json.NewDecoder(r.Body).Decode(&token); err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+		token.ID = id
+		if err := s.db.UpdateAPIToken(r.Context(), &token); err != nil {
+			s.logger.Error("failed to update API token", "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(token)
+	case http.MethodDelete:
+		if err := s.db.DeleteAPIToken(r.Context(), id); err != nil {
+			s.logger.Error("failed to delete API token", "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
