@@ -128,14 +128,28 @@ func (db *DB) Migrate() error {
 		created_at INTEGER NOT NULL,
 		updated_at INTEGER NOT NULL
 	)`,
-		`CREATE TABLE IF NOT EXISTS alert_config (
+`CREATE TABLE IF NOT EXISTS alert_config (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		collection_failure_threshold INTEGER NOT NULL DEFAULT 3,
 		webhooks TEXT NOT NULL DEFAULT '[]',
 		created_at INTEGER NOT NULL,
 		updated_at INTEGER NOT NULL
 	)`,
-	}
+	`CREATE TABLE IF NOT EXISTS api_tokens (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL,
+		token_hash TEXT NOT NULL,
+		project_id INTEGER,
+		scopes TEXT NOT NULL DEFAULT 'read',
+		expires_at INTEGER,
+		last_used_at INTEGER,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL,
+		FOREIGN KEY (project_id) REFERENCES projects(id)
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_api_tokens_token_hash ON api_tokens(token_hash)`,
+	`CREATE INDEX IF NOT EXISTS idx_api_tokens_project_id ON api_tokens(project_id)`,
+}
 
 	for _, q := range queries {
 		if _, err := db.Exec(q); err != nil {

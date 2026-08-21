@@ -134,6 +134,18 @@ type ProjectMember struct {
 	CreatedAt time.Time
 }
 
+type APIToken struct {
+	ID        int64
+	Name      string
+	TokenHash string
+	ProjectID *int64
+	Scopes    string
+	ExpiresAt sql.NullTime
+	LastUsedAt sql.NullTime
+	CreatedAt sql.NullTime
+	UpdatedAt sql.NullTime
+}
+
 type Sample struct {
 	HostID    int64
 	Metric    string
