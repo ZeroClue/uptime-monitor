@@ -101,7 +101,9 @@ hosts:
     user: monitor
     key_path: /keys/web-01    # relative to /config
     sudo: false
-    timeout: 10s
+    timeout: 30s              # per-command execution budget
+    ssh_timeout: 10s          # optional: connection phase budget (default 10s)
+    collector_timeout: 30s    # optional: whole-collect budget (default 30s)
     proxy_jump: ""
     tags: [web, prod]
     collector_preference: ""  # optional: force specific collector
@@ -344,6 +346,8 @@ Three per-host budgets (all optional, set in hosts.yaml or the host form):
 | `timeout` | each SSH command execution | 30s |
 | `ssh_timeout` (`ssh_timeout_ms` in API/form) | connection establishment | 10s |
 | `collector_timeout` (`collector_timeout_ms`) | whole collect across all collectors in the chain | 30s |
+
+The collector budget is shared across a poll's retry attempts: once spent, remaining retries fail fast rather than getting a fresh window.
 
 ### API Tokens
 
