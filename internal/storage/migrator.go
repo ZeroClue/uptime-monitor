@@ -96,14 +96,21 @@ func (db *DB) Migrate() error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_alert_rules_metric_scope ON alert_rules(metric, scope, host_id)`,
 		`CREATE TABLE IF NOT EXISTS notification_channels (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name TEXT UNIQUE NOT NULL,
-			type TEXT NOT NULL,
-			config TEXT NOT NULL,
-			enabled BOOLEAN NOT NULL DEFAULT TRUE,
-			created_at INTEGER NOT NULL,
-			updated_at INTEGER NOT NULL
-		)`,
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT UNIQUE NOT NULL,
+		type TEXT NOT NULL,
+		config TEXT NOT NULL,
+		enabled BOOLEAN NOT NULL DEFAULT TRUE,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
+	)`,
+		`CREATE TABLE IF NOT EXISTS alert_config (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		collection_failure_threshold INTEGER NOT NULL DEFAULT 3,
+		webhooks TEXT NOT NULL DEFAULT '[]',
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
+	)`,
 	}
 
 	for _, q := range queries {

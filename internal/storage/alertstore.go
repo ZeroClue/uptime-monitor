@@ -333,3 +333,57 @@ func (db *DB) GetEnabledNotificationChannels(ctx context.Context) ([]Notificatio
 	}
 	return channels, nil
 }
+
+func scanAlertConfigRow(row interface{ Scan(...any) error }, c *AlertConfig) error {
+	var createdAt, updatedAt int64
+	if err := row.Scan(&c.ID, &c.CollectionFailureThreshold, &c.Webhooks, &createdAt, &updatedAt); err != nil {
+		return err
+	}
+	c.CreatedAt = time.Unix(createdAt, 0)
+	c.UpdatedAt = time.Unix(updatedAt, 0)
+	return nil
+}
+
+func (db *DB) GetAlertConfig(ctx context.Context) (*AlertConfig, error) {
+	row := db.QueryRowContext(ctx, `SELECT id, collection_failure_threshold, webhooks, created_at, updated_at FROM alert_config LIMIT 1`)
+	var c AlertConfig
+	if err := scanAlertConfigRow(row, &c); err == sql.ErrNoRows {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+func (db *DB) UpdateAlertConfig(ctx context.Context, config *AlertConfig) error {
+	now := time.Now().Unix()
+	config.UpdatedAt = time.Unix(now, 0)
+	_, err := db.ExecContext(ctx, `UPDATE alert_config SET collection_failure_threshold = ?, webhooks = ?, updated_at = ? WHERE id = ?`,
+		config.CollectionFailureThreshold, config.Webhooks, now, config.ID)
+	return err
+}
+
+func (db *DB) CreateAlertConfig(ctx context.Context, config *AlertConfig) (int64, error) {
+	now := time.Now().Unix()
+	config.CreatedAt = time.Unix(now, 0)
+	config.UpdatedAt = time.Unix(now, 0)
+	res, err := db.ExecContext(ctx, `INSERT INTO alert_config (collection_failure_threshold, webhooks, created_at, updated_at) VALUES (?, ?, ?, ?)`,
+		config.CollectionFailureThreshold, config.Webhooks, now, now)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (db *DB) EnsureAlertConfig(ctx context.Context) error {
+	_, err := db.GetAlertConfig(ctx)
+	if err == sql.ErrNoRows {
+		// Create default config
+		_, err := db.CreateAlertConfig(ctx, &AlertConfig{
+			CollectionFailureThreshold: 3,
+			Webhooks:                   "[]",
+		})
+		return err
+	}
+	return err
+}

@@ -95,6 +95,14 @@ type NotificationChannel struct {
 	UpdatedAt time.Time
 }
 
+type AlertConfig struct {
+	ID                         int64
+	CollectionFailureThreshold int
+	Webhooks                   string // JSON array of webhook configs
+	CreatedAt                  time.Time
+	UpdatedAt                  time.Time
+}
+
 type Project struct {
 	ID       int64
 	Name     string
