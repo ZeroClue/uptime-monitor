@@ -2,10 +2,12 @@ package dashboard
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -223,5 +225,65 @@ func TestAPIAlertsRequiresAction(t *testing.T) {
 	// ack of a nonexistent alert should not panic; treat as error status or OK
 	if rec.Code != http.StatusOK && rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 200 or 500, got %d", rec.Code)
+	}
+}
+
+func TestAPIAlerts_ProjectScoped(t *testing.T) {
+	s := newTestServer(t)
+	ctx := context.Background()
+
+	projectA, err := s.db.CreateProject(ctx, &storage.Project{Name: "proj-a", Type: "explicit"})
+	if err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	hosts, _ := s.db.GetHosts()
+	if len(hosts) < 2 {
+		t.Fatalf("expected 2 hosts, got %d", len(hosts))
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE hosts SET project_id = ? WHERE id = ?`, projectA, hosts[0].ID); err != nil {
+		t.Fatalf("assign host to project: %v", err)
+	}
+	if err := s.db.InsertAlert(ctx, storage.Alert{HostID: hosts[0].ID, Type: "threshold", Metric: "cpu.user_pct", Severity: "warning", Message: "m", Value: 90, Threshold: 80, FiredAt: time.Now()}); err != nil {
+		t.Fatalf("insert alert A: %v", err)
+	}
+	if err := s.db.InsertAlert(ctx, storage.Alert{HostID: hosts[1].ID, Type: "threshold", Metric: "mem.used_pct", Severity: "critical", Message: "m", Value: 95, Threshold: 90, FiredAt: time.Now()}); err != nil {
+		t.Fatalf("insert alert B: %v", err)
+	}
+
+	handler := s.projectMiddleware(s.handleAPIAlerts)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/alerts?project_id="+strconv.FormatInt(projectA, 10), nil)
+	rec := httptest.NewRecorder()
+	handler(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var scoped []storage.AlertWithHost
+	if err := json.Unmarshal(rec.Body.Bytes(), &scoped); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(scoped) != 1 || scoped[0].Metric != "cpu.user_pct" {
+		t.Fatalf("expected only project A's cpu alert, got %+v", scoped)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/alerts", nil)
+	rec = httptest.NewRecorder()
+	handler(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	var all []storage.AlertWithHost
+	if err := json.Unmarshal(rec.Body.Bytes(), &all); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("expected all alerts without filter, got %d", len(all))
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/alerts?project_id=notanumber", nil)
+	rec = httptest.NewRecorder()
+	handler(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid project_id, got %d", rec.Code)
 	}
 }

@@ -105,29 +105,8 @@ type AlertWithHost struct {
 	HostName string
 }
 
-func (db *DB) GetAllAlerts(ctx context.Context) ([]AlertWithHost, error) {
-	query := `SELECT a.id, a.host_id, a.type, a.metric, a.severity, a.message, a.value, a.threshold, a.fired_at, a.acknowledged_at, a.resolved_at, a.silenced_until, COALESCE(h.name, '')
-		FROM alerts a LEFT JOIN hosts h ON h.id = a.host_id
-		ORDER BY a.fired_at DESC`
-	rows, err := db.QueryContext(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var alerts []AlertWithHost
-	for rows.Next() {
-		var a AlertWithHost
-		var hostName string
-		if err := scanAlertRow(rows, &a.Alert, &hostName); err != nil {
-			return nil, err
-		}
-		a.HostName = hostName
-		alerts = append(alerts, a)
-	}
-	return alerts, nil
-}
-
+// GetAlertsByProject returns alerts for hosts in the given project.
+// A nil projectID means all projects (backwards compatible).
 func (db *DB) GetAlertsByProject(ctx context.Context, projectID *int64) ([]AlertWithHost, error) {
 	query := `SELECT a.id, a.host_id, a.type, a.metric, a.severity, a.message, a.value, a.threshold, a.fired_at, a.acknowledged_at, a.resolved_at, a.silenced_until, COALESCE(h.name, '')
 		FROM alerts a LEFT JOIN hosts h ON h.id = a.host_id`
@@ -155,6 +134,10 @@ func (db *DB) GetAlertsByProject(ctx context.Context, projectID *int64) ([]Alert
 		alerts = append(alerts, a)
 	}
 	return alerts, nil
+}
+
+func (db *DB) GetAllAlerts(ctx context.Context) ([]AlertWithHost, error) {
+	return db.GetAlertsByProject(ctx, nil)
 }
 
 func (db *DB) AcknowledgeAllAlerts(ctx context.Context, severity string) error {

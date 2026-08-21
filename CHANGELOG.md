@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Project switcher UI** — nav-bar dropdown populated from `/api/projects`; selecting a project scopes the hosts list and alerts pages via `?project_id=` (deep-linkable).
+- **Project-scoped alerts** — `GET /api/alerts?project_id=N` filters alerts to hosts in a project; the alerts and alert-history pages honor the current project from URL/header/cookie; invalid ids return 400 instead of panicking on malformed input.
+- **Default project bootstrap** — startup auto-creates a `Default` project when none exist and assigns unassigned hosts to it (`EnsureDefaultProject`).
+
+### Changed
+- Project middleware rewritten: typed context key, explicit 400 on invalid project scope, no silent first-project fallback ("all projects" remains the default view).
+
 ## [0.4.0] - 2026-08-20
 
 ### Added

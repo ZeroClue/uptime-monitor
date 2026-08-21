@@ -64,6 +64,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := db.EnsureDefaultProject(ctx); err != nil {
+		slog.Error("failed to ensure default project", "error", err)
+		os.Exit(1)
+	}
+
 	if err := db.SeedHosts(cfg.Hosts); err != nil {
 		slog.Error("failed to seed hosts", "error", err)
 		os.Exit(1)
