@@ -192,20 +192,7 @@ func scanAlertRuleRow(row interface{ Scan(...any) error }, r *AlertRule) error {
 }
 
 func (db *DB) GetAlertRules(ctx context.Context) ([]AlertRule, error) {
-	rows, err := db.QueryContext(ctx, `SELECT id, metric, scope, host_id, warning, critical, below, enabled, project_id, created_at, updated_at FROM alert_rules ORDER BY created_at DESC`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var rules []AlertRule
-	for rows.Next() {
-		var r AlertRule
-		if err := scanAlertRuleRow(rows, &r); err != nil {
-			return nil, err
-		}
-		rules = append(rules, r)
-	}
-	return rules, nil
+	return db.GetAlertRulesByProject(ctx, nil)
 }
 
 func (db *DB) GetAlertRule(ctx context.Context, id int64) (*AlertRule, error) {

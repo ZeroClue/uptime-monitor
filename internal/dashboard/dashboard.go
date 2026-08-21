@@ -1134,6 +1134,21 @@ func (s *Server) handleAPIAlertRules(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// scopeAllowsEntity enforces project isolation on by-ID access: when the
+// request carries a project scope, entities scoped elsewhere are invisible
+// (404, to avoid existence leaks). Global (nil-project) entities pass.
+func scopeAllowsEntity(w http.ResponseWriter, r *http.Request, entityProject *int64) bool {
+	scope := projectIDFromContext(r.Context())
+	if scope == nil || entityProject == nil {
+		return true
+	}
+	if *scope != *entityProject {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return false
+	}
+	return true
+}
+
 func (s *Server) handleAPIAlertRuleByID(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/alert-rules/")
 	id, err := parseInt64(idStr)
@@ -1154,15 +1169,32 @@ func (s *Server) handleAPIAlertRuleByID(w http.ResponseWriter, r *http.Request) 
 			http.Error(w, "Not found", http.StatusNotFound)
 			return
 		}
+		if !scopeAllowsEntity(w, r, rule.ProjectID) {
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rule)
 	case http.MethodPut:
+		existing, err := s.db.GetAlertRule(r.Context(), id)
+		if err != nil {
+			s.logger.Error("failed to get alert rule", "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		if existing == nil {
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
+		if !scopeAllowsEntity(w, r, existing.ProjectID) {
+			return
+		}
 		var rule storage.AlertRule
 		if err := json.NewDecoder(r.Body).Decode(&rule); err != nil {
 			http.Error(w, "Invalid JSON", http.StatusBadRequest)
 			return
 		}
 		rule.ID = id
+		rule.ProjectID = existing.ProjectID // scope is immutable after create
 		if err := s.db.UpdateAlertRule(r.Context(), &rule); err != nil {
 			s.logger.Error("failed to update alert rule", "error", err)
 			http.Error(w, "Internal error", http.StatusInternalServerError)
@@ -1171,6 +1203,19 @@ func (s *Server) handleAPIAlertRuleByID(w http.ResponseWriter, r *http.Request) 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(rule)
 	case http.MethodDelete:
+		existing, err := s.db.GetAlertRule(r.Context(), id)
+		if err != nil {
+			s.logger.Error("failed to get alert rule", "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		if existing == nil {
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
+		if !scopeAllowsEntity(w, r, existing.ProjectID) {
+			return
+		}
 		if err := s.db.DeleteAlertRule(r.Context(), id); err != nil {
 			s.logger.Error("failed to delete alert rule", "error", err)
 			http.Error(w, "Internal error", http.StatusInternalServerError)
@@ -1331,15 +1376,32 @@ func (s *Server) handleAPINotificationChannelByID(w http.ResponseWriter, r *http
 			http.Error(w, "Not found", http.StatusNotFound)
 			return
 		}
+		if !scopeAllowsEntity(w, r, channel.ProjectID) {
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(channel)
 	case http.MethodPut:
+		existing, err := s.db.GetNotificationChannel(r.Context(), id)
+		if err != nil {
+			s.logger.Error("failed to get notification channel", "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		if existing == nil {
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
+		if !scopeAllowsEntity(w, r, existing.ProjectID) {
+			return
+		}
 		var channel storage.NotificationChannel
 		if err := json.NewDecoder(r.Body).Decode(&channel); err != nil {
 			http.Error(w, "Invalid JSON", http.StatusBadRequest)
 			return
 		}
 		channel.ID = id
+		channel.ProjectID = existing.ProjectID // scope is immutable after create
 		if err := s.db.UpdateNotificationChannel(r.Context(), &channel); err != nil {
 			s.logger.Error("failed to update notification channel", "error", err)
 			http.Error(w, "Internal error", http.StatusInternalServerError)
@@ -1348,6 +1410,19 @@ func (s *Server) handleAPINotificationChannelByID(w http.ResponseWriter, r *http
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(channel)
 	case http.MethodDelete:
+		existing, err := s.db.GetNotificationChannel(r.Context(), id)
+		if err != nil {
+			s.logger.Error("failed to get notification channel", "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		if existing == nil {
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
+		if !scopeAllowsEntity(w, r, existing.ProjectID) {
+			return
+		}
 		if err := s.db.DeleteNotificationChannel(r.Context(), id); err != nil {
 			s.logger.Error("failed to delete notification channel", "error", err)
 			http.Error(w, "Internal error", http.StatusInternalServerError)

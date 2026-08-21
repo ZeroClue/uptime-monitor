@@ -433,3 +433,86 @@ func TestAPIAlertRules_ProjectScopedViaContext(t *testing.T) {
 		t.Fatal("scoped rule not visible in its project view")
 	}
 }
+
+func TestAPIAlertRuleByID_ScopeIsolation(t *testing.T) {
+	s := newTestServer(t)
+	ctx := context.Background()
+
+	projectA, err := s.db.CreateProject(ctx, &storage.Project{Name: "iso-a", Type: "explicit"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pA := projectA
+	ruleID, err := s.db.CreateAlertRule(ctx, &storage.AlertRule{Metric: "cpu.user_pct", Scope: "global", Warning: 80, Critical: 90, ProjectID: &pA})
+	if err != nil {
+		t.Fatal(err)
+	}
+	globalID, err := s.db.CreateAlertRule(ctx, &storage.AlertRule{Metric: "mem.used_pct", Scope: "global", Warning: 70, Critical: 85})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	byID := s.projectMiddleware(s.handleAPIAlertRuleByID)
+	scopeA := "?project_id=" + strconv.FormatInt(projectA, 10)
+
+	// Own project's rule: visible.
+	rec := httptest.NewRecorder()
+	byID(rec, httptest.NewRequest(http.MethodGet, "/api/alert-rules/"+strconv.FormatInt(ruleID, 10)+scopeA, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("own-project rule should be visible, got %d", rec.Code)
+	}
+
+	// Global rules are shared: visible from any scope (matches list semantics).
+	req := httptest.NewRequest(http.MethodGet, "/api/alert-rules/"+strconv.FormatInt(globalID, 10)+scopeA, nil)
+	rec = httptest.NewRecorder()
+	byID(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("global rule visible from any scope, got %d", rec.Code)
+	}
+
+	// A rule scoped elsewhere is invisible.
+	other, err := s.db.CreateAlertRule(ctx, &storage.AlertRule{Metric: "disk.*.used_pct", Scope: "global", Warning: 60, Critical: 75})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pOther := int64(999999)
+	if _, err := s.db.CreateAlertRule(ctx, &storage.AlertRule{Metric: "cpu.system_pct", Scope: "global", Warning: 50, Critical: 60, ProjectID: &pOther}); err != nil {
+		t.Fatal(err)
+	}
+	_ = other
+	req = httptest.NewRequest(http.MethodGet, "/api/alert-rules/"+strconv.FormatInt(ruleID, 10)+"?project_id=999999", nil)
+	rec = httptest.NewRecorder()
+	byID(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("foreign-project rule must 404 behind another scope, got %d", rec.Code)
+	}
+
+	// Unscoped view sees both.
+	for _, id := range []int64{ruleID, globalID} {
+		rec = httptest.NewRecorder()
+		byID(rec, httptest.NewRequest(http.MethodGet, "/api/alert-rules/"+strconv.FormatInt(id, 10), nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("unscoped view should see rule %d, got %d", id, rec.Code)
+		}
+	}
+
+	foreign := int64(999999)
+	if _, err := s.db.CreateAlertRule(ctx, &storage.AlertRule{Metric: "cpu.system_pct", Scope: "global", Warning: 50, Critical: 60, ProjectID: &foreign}); err != nil {
+		t.Fatal(err)
+	}
+	putBody := `{"metric":"hijacked","scope":"global","warning":1,"critical":2,"project_id":null}`
+	req = httptest.NewRequest(http.MethodPut, "/api/alert-rules/"+strconv.FormatInt(ruleID, 10), strings.NewReader(putBody))
+	rec = httptest.NewRecorder()
+	byID(rec, req)
+	got, _ := s.db.GetAlertRule(ctx, ruleID)
+	if got == nil || got.ProjectID == nil || *got.ProjectID != pA {
+		t.Fatalf("PUT moved rule out of its project: %+v", got)
+	}
+	// DELETE within own scope allowed; cross-scope delete blocked.
+	req = httptest.NewRequest(http.MethodDelete, "/api/alert-rules/"+strconv.FormatInt(ruleID, 10)+scopeA, nil)
+	rec = httptest.NewRecorder()
+	byID(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("own-scope delete should succeed, got %d", rec.Code)
+	}
+}
