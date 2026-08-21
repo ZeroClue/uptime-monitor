@@ -60,7 +60,7 @@ func NewServer(password string, db *storage.DB, sched *scheduler.Scheduler, logg
 }
 
 func (s *Server) loadTemplates() {
-	pages := []string{"index", "host", "compare", "projects", "alerts", "monitor", "alerts_history", "alerts_config", "hosts_config"}
+	pages := []string{"index", "host", "compare", "projects", "projects_config", "alerts", "monitor", "alerts_history", "alerts_config", "hosts_config"}
 	tmpls := make(map[string]*template.Template, len(pages)+1)
 	for _, p := range pages {
 		t, err := template.ParseFS(embeddedFiles, "templates/base.html", "templates/"+p+".html")
@@ -88,6 +88,7 @@ func (s *Server) Run(ctx context.Context) {
 	mux.HandleFunc("/host/", s.authMiddleware(s.handleHost))
 	mux.HandleFunc("/compare", s.authMiddleware(s.handleCompare))
 	mux.HandleFunc("/projects", s.authMiddleware(s.handleProjects))
+	mux.HandleFunc("/projects/config", s.authMiddleware(s.handleProjectsConfig))
 	mux.HandleFunc("/alerts", s.authMiddleware(s.projectMiddleware(s.handleAlerts)))
 	mux.HandleFunc("/alerts/history", s.authMiddleware(s.handleAlertsHistory))
 	mux.HandleFunc("/alerts/config", s.authMiddleware(s.handleAlertsConfig))
@@ -274,15 +275,34 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal error", http.StatusInternalServerError)
 		return
 	}
+	projects, err := s.db.GetProjects(r.Context())
+	if err != nil {
+		s.logger.Error("failed to get projects", "error", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+	projectNames := make(map[int64]string, len(projects))
+	for _, p := range projects {
+		projectNames[p.ID] = p.Name
+	}
+
 	statuses := s.sched.GetAllHostStatuses()
 	type hostBrief struct {
-		ID   int64    `json:"id"`
-		Name string   `json:"name"`
-		Tags []string `json:"tags"`
+		ID          int64    `json:"id"`
+		Name        string   `json:"name"`
+		Tags        []string `json:"tags"`
+		ProjectID   *int64   `json:"project_id"`
+		ProjectName string   `json:"project_name"`
 	}
 	briefs := make([]hostBrief, 0, len(hosts))
 	for _, h := range hosts {
-		briefs = append(briefs, hostBrief{ID: h.ID, Name: h.Name, Tags: h.Tags})
+		briefs = append(briefs, hostBrief{
+			ID:          h.ID,
+			Name:        h.Name,
+			Tags:        h.Tags,
+			ProjectID:   h.ProjectID,
+			ProjectName: projectNames[deref(h.ProjectID)],
+		})
 	}
 	hostsJSON, err := json.Marshal(briefs)
 	if err != nil {
@@ -291,15 +311,24 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := struct {
-		Hosts     []storage.Host
-		HostsJSON template.JS
-		Statuses  map[int64]*scheduler.HostStatus
+		Hosts        []storage.Host
+		HostsJSON    template.JS
+		Statuses     map[int64]*scheduler.HostStatus
+		ProjectCount int
 	}{
-		Hosts:     hosts,
-		HostsJSON: template.JS(hostsJSON),
-		Statuses:  statuses,
+		Hosts:        hosts,
+		HostsJSON:    template.JS(hostsJSON),
+		Statuses:     statuses,
+		ProjectCount: len(projects),
 	}
 	s.render(w, "index.html", data)
+}
+
+func deref(p *int64) int64 {
+	if p == nil {
+		return 0
+	}
+	return *p
 }
 
 func (s *Server) handleHost(w http.ResponseWriter, r *http.Request) {
@@ -333,6 +362,10 @@ func (s *Server) handleHost(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCompare(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "compare.html", nil)
+}
+
+func (s *Server) handleProjectsConfig(w http.ResponseWriter, r *http.Request) {
+	s.render(w, "projects_config.html", nil)
 }
 
 func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {

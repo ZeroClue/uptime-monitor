@@ -18,6 +18,7 @@
     <thead>
         <tr>
             <th data-sort="name" tabindex="0" onclick="sortBy('name')" onkeydown="if(event.key==='Enter')sortBy('name')">Host <span class="sort-arrow"></span></th>
+            {{if gt .ProjectCount 1}}<th data-sort="project" tabindex="0" onclick="sortBy('project')" onkeydown="if(event.key==='Enter')sortBy('project')">Project <span class="sort-arrow"></span></th>{{end}}
             <th data-sort="status" tabindex="0" onclick="sortBy('status')" onkeydown="if(event.key==='Enter')sortBy('status')">Status <span class="sort-arrow"></span></th>
             <th data-sort="cpu" tabindex="0" onclick="sortBy('cpu')" onkeydown="if(event.key==='Enter')sortBy('cpu')">CPU <span class="sort-arrow"></span></th>
             <th data-sort="mem" tabindex="0" onclick="sortBy('mem')" onkeydown="if(event.key==='Enter')sortBy('mem')">MEM <span class="sort-arrow"></span></th>
@@ -31,6 +32,7 @@
 
 <script>
     const HOSTS = {{.HostsJSON}};
+    const SHOW_PROJECT_COLUMN = {{.ProjectCount}} > 1;
     const VIEW_KEY = 'uptime-monitor-host-view';
 
     let view = 'table';
@@ -76,6 +78,7 @@
             uptime: sum.uptime_seconds,
             tagsHtml: tags,
             tags: host.tags || [],
+            project: host.project_name || '—',
             id: host.id
         };
     }
@@ -94,6 +97,7 @@
         rows.sort((a, b) => {
             let av = a[sortKey], bv = b[sortKey];
             if (sortKey === 'name') { av = a.name; bv = b.name; }
+        if (sortKey === 'project') { av = a.project; bv = b.project; }
             if (sortKey === 'status') { av = a.status; bv = b.status; }
             if (av === bv) return 0;
             if (av === null || av === undefined) return 1;
@@ -111,6 +115,7 @@
         const tbody = document.getElementById('hostRows');
         tbody.innerHTML = rows.map(r =>
             '<tr><td><a href="/host/' + r.id + '">' + r.name + '</a><div class="tags">' + r.tagsHtml + '</div></td>' +
+            (SHOW_PROJECT_COLUMN ? '<td>' + r.project + '</td>' : '') +
             '<td><span class="status ' + r.status + '">' + r.statusLabel + '</span></td>' +
             '<td class="num mono">' + fmtPct(r.cpu) + '</td>' +
             '<td class="num mono">' + fmtPct(r.mem) + '</td>' +

@@ -1,0 +1,175 @@
+{{define "title"}}Projects Config{{end}}
+{{define "content"}}
+<div class="header">
+    <h1>Projects Config</h1>
+    <button class="btn" onclick="openProjectModal()">Add Project</button>
+</div>
+
+<table class="data-table">
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Tag Query</th>
+            <th>Default</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody id="projectsBody"></tbody>
+</table>
+
+<div class="modal-overlay" id="projectModal" hidden>
+    <div class="modal">
+        <div class="modal-header">
+            <h3 id="projectModalTitle">Add Project</h3>
+            <button class="close-btn" onclick="closeProjectModal()">&times;</button>
+        </div>
+        <form id="projectForm">
+            <input type="hidden" name="id" id="projectIdInput">
+            <div class="form-group">
+                <label for="projName">Name</label>
+                <input type="text" name="name" id="projName" required maxlength="100">
+            </div>
+            <div class="form-group">
+                <label for="projType">Type</label>
+                <select name="type" id="projType" required>
+                    <option value="explicit">Explicit (hosts assigned by ID)</option>
+                    <option value="tag_query">Tag Query (dynamic membership)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="projTagQuery">Tag Query (for tag_query type)</label>
+                <input type="text" name="tag_query" id="projTagQuery" placeholder='e.g. prod and not edge'>
+            </div>
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" name="is_default" id="projIsDefault"> Default project (receives unassigned hosts)
+                </label>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeProjectModal()">Cancel</button>
+                <button type="submit" class="btn">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    let projects = [];
+
+    async function apiGet(path) {
+        const r = await fetch(path, { headers: { 'Accept': 'application/json' } });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+    }
+
+    async function apiPost(path, data) {
+        const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+        if (!r.ok) throw new Error(await r.text() || ('HTTP ' + r.status));
+        return r.json();
+    }
+
+    async function apiPut(path, data) {
+        const r = await fetch(path, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+        if (!r.ok) throw new Error(await r.text() || ('HTTP ' + r.status));
+        return r.json();
+    }
+
+    async function apiDelete(path) {
+        const r = await fetch(path, { method: 'DELETE' });
+        if (!r.ok && r.status !== 204) throw new Error('HTTP ' + r.status);
+    }
+
+    function renderProjects() {
+        const tbody = document.getElementById('projectsBody');
+        tbody.innerHTML = projects.map(p => `
+            <tr>
+                <td>${p.name}${p.is_default ? ' <span class="tag">default</span>' : ''}</td>
+                <td>${p.type}</td>
+                <td class="mono">${p.tag_query || '—'}</td>
+                <td>${p.is_default ? '<span class="status ok">YES</span>' : '<span class="status down">NO</span>'}</td>
+                <td>
+                    <button class="btn-sm" onclick="editProject(${p.id})">Edit</button>
+                    <button class="btn-sm btn-danger" onclick="deleteProject(${p.id})">Delete</button>
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    async function loadProjectsConfig() {
+        try {
+            projects = await apiGet('/api/projects') || [];
+            renderProjects();
+        } catch (err) {
+            console.error('Failed to load projects:', err);
+        }
+    }
+
+    function openProjectModal(project = null) {
+        const modal = document.getElementById('projectModal');
+        const form = document.getElementById('projectForm');
+        form.reset();
+        document.getElementById('projectIdInput').value = '';
+        if (project) {
+            document.getElementById('projectModalTitle').textContent = 'Edit Project';
+            document.getElementById('projectIdInput').value = project.id;
+            document.getElementById('projName').value = project.name;
+            document.getElementById('projType').value = project.type || 'explicit';
+            document.getElementById('projTagQuery').value = project.tag_query || '';
+            document.getElementById('projIsDefault').checked = !!project.is_default;
+        } else {
+            document.getElementById('projectModalTitle').textContent = 'Add Project';
+        }
+        modal.hidden = false;
+    }
+
+    function closeProjectModal() {
+        document.getElementById('projectModal').hidden = true;
+    }
+
+    async function submitProject(e) {
+        e.preventDefault();
+        const form = e.target;
+        const data = {
+            name: form.name.value.trim(),
+            type: form.type.value,
+            tag_query: form.tag_query.value.trim(),
+            is_default: form.is_default.checked,
+        };
+        const id = form.id.value;
+        try {
+            if (id) {
+                await apiPut('/api/projects/' + id, data);
+            } else {
+                await apiPost('/api/projects', data);
+            }
+            closeProjectModal();
+            loadProjectsConfig();
+        } catch (err) {
+            alert('Error: ' + err.message);
+        }
+    }
+
+    function editProject(id) {
+        const project = projects.find(p => p.id === id);
+        if (project) openProjectModal(project);
+    }
+
+    async function deleteProject(id) {
+        const project = projects.find(p => p.id === id);
+        const name = project ? project.name : ('#' + id);
+        if (!confirm('Delete project "' + name + '"? Hosts assigned to it become unassigned.')) return;
+        try {
+            await apiDelete('/api/projects/' + id);
+            loadProjectsConfig();
+        } catch (err) {
+            alert('Error: ' + err.message);
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadProjectsConfig();
+        document.getElementById('projectForm').addEventListener('submit', submitProject);
+    });
+</script>
+{{end}}
