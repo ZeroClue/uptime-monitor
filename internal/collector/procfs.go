@@ -670,6 +670,9 @@ func (p *ProcfsCollector) getNetInfo(ctx context.Context, host Host) (NetInfo, e
 func parseNetDev(output string) NetInfo {
 	lines := strings.Split(output, "\n")
 	interfaces := make(map[string]NetInterface)
+	if len(lines) < 3 {
+		return NetInfo{Interfaces: interfaces}
+	}
 	for _, line := range lines[2:] {
 		fields := strings.Fields(strings.TrimSpace(line))
 		if len(fields) < 17 {

@@ -61,11 +61,11 @@ func (p *LocalProcfsCollector) Collect(ctx context.Context, host Host) ([]Sample
 
 	loadAvg, err := parseLoadAvgFile(p.procPath("loadavg"))
 	if err != nil {
-		return nil, fmt.Errorf("loadavg: %w", err)
+		return nil, fmt.Errorf("failed to get loadavg: %w", err)
 	}
 	memInfo, err := parseMemInfoFile(p.procPath("meminfo"))
 	if err != nil {
-		return nil, fmt.Errorf("meminfo: %w", err)
+		return nil, fmt.Errorf("failed to get meminfo: %w", err)
 	}
 	cpuStatOut, err := os.ReadFile(p.procPath("stat"))
 	if err != nil {
@@ -73,26 +73,26 @@ func (p *LocalProcfsCollector) Collect(ctx context.Context, host Host) ([]Sample
 	}
 	cpuStat, err := parseCPUStat(string(cpuStatOut))
 	if err != nil {
-		return nil, fmt.Errorf("cpu stat: %w", err)
+		return nil, fmt.Errorf("failed to get cpu stat: %w", err)
 	}
-	diskInfo, err := p.getDiskInfo()
+	diskInfo, err := p.getDiskInfo(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("disk info: %w", err)
+		return nil, fmt.Errorf("failed to get disk info: %w", err)
 	}
 	netDevOut, err := os.ReadFile(p.procPath("net", "dev"))
 	if err != nil {
-		return nil, fmt.Errorf("net dev: %w", err)
+		return nil, fmt.Errorf("failed to get net info: %w", err)
 	}
 	netInfo := parseNetDev(string(netDevOut))
 	uptime, err := parseUptimeFile(p.procPath("uptime"))
 	if err != nil {
-		return nil, fmt.Errorf("uptime: %w", err)
+		return nil, fmt.Errorf("failed to get uptime: %w", err)
 	}
 
 	now := time.Now()
 	swapUsed := memInfo.SwapTotal - memInfo.SwapFree
 	samples := []Sample{
-		{HostID: host.ID, Metric: "cpu.load_1m", Value: loadAvg.Load1, Timestamp: now, Collector: "local"},
+		{HostID: host.ID, Metric: "cpu.load_1m", Value: loadAvg.Load1, Timestamp: now},
 		{HostID: host.ID, Metric: "cpu.load_5m", Value: loadAvg.Load5, Timestamp: now},
 		{HostID: host.ID, Metric: "cpu.load_15m", Value: loadAvg.Load15, Timestamp: now},
 		{HostID: host.ID, Metric: "mem.total_bytes", Value: float64(memInfo.Total), Timestamp: now},
@@ -198,6 +198,9 @@ func (p *LocalProcfsCollector) Collect(ctx context.Context, host Host) ([]Sample
 		}
 	}
 
+	for i := range samples {
+		samples[i].Collector = "local"
+	}
 	return samples, nil
 }
 
@@ -206,8 +209,8 @@ func (p *LocalProcfsCollector) procPath(elem ...string) string {
 }
 
 // getDiskInfo shells out to df (real filesystem view); /proc has no mount sizes.
-func (p *LocalProcfsCollector) getDiskInfo() (map[string]DiskMountInfo, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+func (p *LocalProcfsCollector) getDiskInfo(ctx context.Context) (map[string]DiskMountInfo, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	dfOut, err := exec.CommandContext(ctx, "df", "-B1").CombinedOutput()
@@ -218,8 +221,10 @@ func (p *LocalProcfsCollector) getDiskInfo() (map[string]DiskMountInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	dfiOut, _ := exec.CommandContext(ctx, "df", "-i").CombinedOutput()
-	if len(dfiOut) > 0 {
+	dfiOut, err := exec.CommandContext(ctx, "df", "-i").CombinedOutput()
+	if err != nil {
+		p.logger.Debug("no inode data", "error", err)
+	} else if len(dfiOut) > 0 {
 		if inodes, err := parseDiskInodes(string(dfiOut)); err == nil {
 			for mount, info := range inodes {
 				if m, ok := mounts[mount]; ok {

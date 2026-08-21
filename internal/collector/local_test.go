@@ -131,6 +131,15 @@ func TestLocalProcfsCollector_MissingFilesFails(t *testing.T) {
 	}
 }
 
+func TestParseNetDev_ShortOutputDoesNotPanic(t *testing.T) {
+	for _, out := range []string{"", "header only", "h1\nh2"} {
+		info := parseNetDev(out)
+		if len(info.Interfaces) != 0 {
+			t.Errorf("expected no interfaces for %q, got %v", out, info.Interfaces)
+		}
+	}
+}
+
 func TestChain_LocalHostPrefersLocalCollector(t *testing.T) {
 	local := NewLocalProcfsCollector(WithLocalProcRoot(writeFakeProc(t)))
 	chain := NewChain(

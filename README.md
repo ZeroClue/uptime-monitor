@@ -349,6 +349,8 @@ services:
 
 Note that `df` still reports the container's filesystem view; disk sizes may differ from the host unless relevant paths are also bind-mounted.
 
+Leave `collector_preference` empty on `connection: local` hosts — forcing a remote collector (`psutil`, `procfs`, `tailscale`) would attempt SSH with no endpoint and fail every poll.
+
 ### Collected Metrics
 
 Metrics are named `<namespace>.<metric>` and auto-discovered by the host detail API — new namespaces appear without dashboard changes.
