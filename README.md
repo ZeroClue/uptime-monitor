@@ -333,7 +333,7 @@ Then configure hosts with `connection: tailscale` and they'll route through the 
 
 Hosts and alerts can be scoped to projects. The nav bar's project switcher filters the hosts list and alerts pages via `?project_id=`; API endpoints accept the same param (or an `X-Project-ID` header). On startup the monitor auto-creates a `Default` project and assigns any unassigned hosts to it.
 
-Alert rules and notification channels participate in scoping: rules with a project apply only to hosts in that project; rules without one are global. `/alerts/config` lists and creates within the active project (new rules inherit it; omit `project_id` in the API to create globals).
+Alert rules and notification channels participate in scoping: rules with a project apply only to hosts in that project; rules without one are global. Notification delivery follows the same rule — a channel scoped to a project receives only that project's alerts; global channels receive everything. `/alerts/config` lists and creates within the active project (new rules inherit it; omit `project_id` in the API to create globals).
 
 Manage projects at **Project Config** (`/projects/config`): create, edit (name/type/tag query/default), and delete. The host form has a project dropdown defaulting to the active project; the host list shows a Project column once more than one project exists.
 

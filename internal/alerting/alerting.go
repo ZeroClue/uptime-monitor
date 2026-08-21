@@ -217,7 +217,7 @@ func (e *Engine) evaluateAlerts(ctx context.Context) {
 			threshold = 3
 		}
 		if status.ConsecutiveFails >= threshold {
-			e.fireAlert(ctx, storage.Alert{
+			e.fireAlert(ctx, h.ProjectID, storage.Alert{
 				HostID:   h.ID,
 				Type:     "collection_failure",
 				Severity: "critical",
@@ -264,7 +264,7 @@ func (e *Engine) checkMetricThresholds(ctx context.Context, hostID int64, hostNa
 		below := rule.Below
 
 		if exceedsThreshold(latest, rule.Critical, below) {
-			e.fireAlert(ctx, storage.Alert{
+			e.fireAlert(ctx, hostProject, storage.Alert{
 				HostID:    hostID,
 				Type:      "metric_threshold",
 				Metric:    rule.Metric,
@@ -275,7 +275,7 @@ func (e *Engine) checkMetricThresholds(ctx context.Context, hostID int64, hostNa
 				FiredAt:   time.Now(),
 			})
 		} else if exceedsThreshold(latest, rule.Warning, below) {
-			e.fireAlert(ctx, storage.Alert{
+			e.fireAlert(ctx, hostProject, storage.Alert{
 				HostID:    hostID,
 				Type:      "metric_threshold",
 				Metric:    rule.Metric,
@@ -289,7 +289,7 @@ func (e *Engine) checkMetricThresholds(ctx context.Context, hostID int64, hostNa
 	}
 }
 
-func (e *Engine) fireAlert(ctx context.Context, alert storage.Alert) {
+func (e *Engine) fireAlert(ctx context.Context, hostProject *int64, alert storage.Alert) {
 	// Check if similar alert already exists and is not acknowledged
 	existing, err := e.db.GetActiveAlert(ctx, alert.HostID, alert.Type, alert.Metric)
 	if err == nil && existing != nil {
@@ -309,11 +309,12 @@ func (e *Engine) fireAlert(ctx context.Context, alert storage.Alert) {
 		return
 	}
 
-	// Send notifications via enabled channels
+	// Send notifications via enabled channels, filtered by the alerting
+	// host's project (global channels receive everything).
 	e.mu.RLock()
-	chans := e.channels
+	chans := e.channels // refreshed periodically; a channel re-scoping takes up to one refresh cycle to apply
 	e.mu.RUnlock()
-	e.sendNotifications(alert, chans)
+	e.sendNotifications(alert, channelsForProject(chans, hostProject))
 }
 
 func (e *Engine) sendNotifications(alert storage.Alert, channels []storage.NotificationChannel) {
@@ -428,4 +429,19 @@ func exceedsThreshold(value, threshold float64, below bool) bool {
 		return value <= threshold
 	}
 	return value >= threshold
+}
+
+// channelsForProject: a channel receives an alert when it is global (nil
+// project) or scoped to the alerting host's own project. Unassigned-host
+// alerts go to global channels only. Mirrors ruleMatchesProject semantics.
+func channelsForProject(channels []storage.NotificationChannel, hostProject *int64) []storage.NotificationChannel {
+	out := make([]storage.NotificationChannel, 0, len(channels))
+	for _, ch := range channels {
+		if ch.ProjectID == nil {
+			out = append(out, ch)
+		} else if hostProject != nil && *ch.ProjectID == *hostProject {
+			out = append(out, ch)
+		}
+	}
+	return out
 }
