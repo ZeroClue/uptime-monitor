@@ -2,6 +2,7 @@ package alerting
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -24,6 +25,7 @@ type Engine struct {
 	logger   *slog.Logger
 	rules    []storage.AlertRule
 	channels []storage.NotificationChannel
+	config   *storage.AlertConfig
 	stopCh   chan struct{}
 	wg       sync.WaitGroup
 	mu       sync.RWMutex
@@ -62,6 +64,9 @@ func (e *Engine) LoadFromConfig(configPath string) error {
 			Type   string `yaml:"type"`
 			Secret string `yaml:"secret"`
 		} `yaml:"webhooks"`
+		Collection struct {
+			FailureThreshold int `yaml:"failure_threshold"`
+		} `yaml:"collection"`
 	}
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return err
@@ -112,6 +117,33 @@ func (e *Engine) LoadFromConfig(configPath string) error {
 		}
 	}
 
+	// Seed alert config if DB is empty
+	existingConfig, err := e.db.GetAlertConfig(context.Background())
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
+	if existingConfig == nil {
+		failureThreshold := cfg.Collection.FailureThreshold
+		if failureThreshold <= 0 {
+			failureThreshold = 3
+		}
+		webhookConfigs := make([]map[string]string, len(cfg.Webhooks))
+		for i, w := range cfg.Webhooks {
+			webhookConfigs[i] = map[string]string{
+				"url":    w.URL,
+				"secret": w.Secret,
+			}
+		}
+		webhooksJSON, _ := json.Marshal(webhookConfigs)
+		config := storage.AlertConfig{
+			CollectionFailureThreshold: failureThreshold,
+			Webhooks:                   string(webhooksJSON),
+		}
+		if _, err := e.db.CreateAlertConfig(context.Background(), &config); err != nil {
+			return err
+		}
+	}
+
 	return e.refreshFromDB()
 }
 
@@ -124,9 +156,14 @@ func (e *Engine) refreshFromDB() error {
 	if err != nil {
 		return err
 	}
+	config, err := e.db.GetAlertConfig(context.Background())
+	if err != nil {
+		return err
+	}
 	e.mu.Lock()
 	e.rules = rules
 	e.channels = channels
+	e.config = config
 	e.mu.Unlock()
 	return nil
 }
@@ -172,8 +209,14 @@ func (e *Engine) evaluateAlerts(ctx context.Context) {
 			continue
 		}
 
-		// Collection failure alert (3 consecutive fails = down)
-		if status.ConsecutiveFails >= 3 {
+		// Collection failure alert (configurable consecutive fails = down)
+		e.mu.RLock()
+		threshold := e.config.CollectionFailureThreshold
+		e.mu.RUnlock()
+		if threshold <= 0 {
+			threshold = 3
+		}
+		if status.ConsecutiveFails >= threshold {
 			e.fireAlert(ctx, storage.Alert{
 				HostID:   h.ID,
 				Type:     "collection_failure",
