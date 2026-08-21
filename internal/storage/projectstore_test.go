@@ -140,3 +140,39 @@ func TestEnsureDefaultProject_Idempotent(t *testing.T) {
 		t.Fatalf("expected still 1 project after repeat call, got %d", len(projects))
 	}
 }
+
+func TestHostTimeoutRoundtrip(t *testing.T) {
+	db := newTestProjectDB(t)
+	ctx := context.Background()
+
+	sshMs, collMs := int64(5000), int64(45000)
+	id, err := db.CreateHost(ctx, &Host{
+		Name: "timed", Connection: "ssh", Endpoint: "10.0.0.1", Port: 22,
+		Timeout: 20 * time.Second, SshTimeoutMs: &sshMs, CollectorTimeoutMs: &collMs,
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	got, err := db.GetHost(ctx, id)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.SshTimeoutMs == nil || *got.SshTimeoutMs != 5000 {
+		t.Errorf("ssh_timeout_ms lost: %v", got.SshTimeoutMs)
+	}
+	if got.CollectorTimeoutMs == nil || *got.CollectorTimeoutMs != 45000 {
+		t.Errorf("collector_timeout_ms lost: %v", got.CollectorTimeoutMs)
+	}
+
+	got.SshTimeoutMs = nil // clearing an override must persist
+	if err := db.UpdateHost(ctx, got); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	cleared, _ := db.GetHost(ctx, id)
+	if cleared.SshTimeoutMs != nil {
+		t.Errorf("expected ssh override cleared, got %v", cleared.SshTimeoutMs)
+	}
+	if cleared.CollectorTimeoutMs == nil || *cleared.CollectorTimeoutMs != 45000 {
+		t.Errorf("collector override should survive update: %v", cleared.CollectorTimeoutMs)
+	}
+}

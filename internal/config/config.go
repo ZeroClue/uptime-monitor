@@ -54,6 +54,8 @@ type Host struct {
 	RetryMaxRetries     *int64         `yaml:"retry_max_retries"`
 	RetryBaseDelay      *time.Duration `yaml:"retry_base_delay"`
 	RetryMaxDelay       *time.Duration `yaml:"retry_max_delay"`
+	SSHTimeout          *time.Duration `yaml:"ssh_timeout"`       // connection phase; default 10s
+	CollectorTimeout    *time.Duration `yaml:"collector_timeout"` // whole-collect budget; default 30s
 }
 
 func Load(configDir string) (*Config, error) {
@@ -78,7 +80,7 @@ func Load(configDir string) (*Config, error) {
 			cfg.Hosts[i].Port = 22
 		}
 		if cfg.Hosts[i].Timeout == 0 {
-			cfg.Hosts[i].Timeout = 10 * time.Second
+			cfg.Hosts[i].Timeout = 30 * time.Second // command execution default
 		}
 	}
 

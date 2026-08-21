@@ -74,6 +74,14 @@
                 </div>
             </div>
             <div class="form-group">
+                <label for="hostSshTimeout">SSH Connect Timeout (ms, blank = 10s default)</label>
+                <input type="number" name="ssh_timeout_ms" id="hostSshTimeout" min="1000" step="500">
+            </div>
+            <div class="form-group">
+                <label for="hostCollectorTimeout">Collector Timeout (ms, blank = 30s default)</label>
+                <input type="number" name="collector_timeout_ms" id="hostCollectorTimeout" min="1000" step="500">
+            </div>
+            <div class="form-group">
                 <label for="hostRetryMax">Retry Attempts (blank = global default)</label>
                 <input type="number" name="retry_max_retries" id="hostRetryMax" min="1" max="10" placeholder="">
             </div>
@@ -162,6 +170,8 @@
             document.getElementById('hostRetryMax').value = host.retry_max_retries || '';
             document.getElementById('hostRetryBase').value = host.retry_base_delay_ms || '';
             document.getElementById('hostRetryCeil').value = host.retry_max_delay_ms || '';
+            document.getElementById('hostSshTimeout').value = host.ssh_timeout_ms || '';
+            document.getElementById('hostCollectorTimeout').value = host.collector_timeout_ms || '';
             document.getElementById('hostEnabled').checked = true; // no disabled field in storage yet
         } else {
             document.getElementById('hostModalTitle').textContent = 'Add Host';
@@ -231,6 +241,8 @@
         if (form.retry_max_retries.value) data.retry_max_retries = parseInt(form.retry_max_retries.value);
         if (form.retry_base_delay_ms.value) data.retry_base_delay_ms = parseInt(form.retry_base_delay_ms.value);
         if (form.retry_max_delay_ms.value) data.retry_max_delay_ms = parseInt(form.retry_max_delay_ms.value);
+        if (form.ssh_timeout_ms.value) data.ssh_timeout_ms = parseInt(form.ssh_timeout_ms.value);
+        if (form.collector_timeout_ms.value) data.collector_timeout_ms = parseInt(form.collector_timeout_ms.value);
         const id = form.id.value;
         try {
             if (id) {

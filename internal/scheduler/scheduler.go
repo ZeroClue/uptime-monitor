@@ -174,6 +174,14 @@ func backoffDelay(cfg config.RetryConfig, attempt int) time.Duration {
 	return delay
 }
 
+// durationFromMs converts a nullable millisecond column to a Duration (0 when nil).
+func durationFromMs(p *int64) time.Duration {
+	if p == nil || *p <= 0 {
+		return 0
+	}
+	return time.Duration(*p) * time.Millisecond
+}
+
 type retryPlan struct {
 	maxAttempts int
 	base        time.Duration
@@ -210,8 +218,17 @@ func (s *Scheduler) pollHost(ctx context.Context, host storage.Host) {
 		KeyPath:             host.KeyPath,
 		Sudo:                host.Sudo,
 		Timeout:             host.Timeout,
+		SSHTimeout:          durationFromMs(host.SshTimeoutMs),
+		CollectorTimeout:    durationFromMs(host.CollectorTimeoutMs),
 		ProxyJump:           host.ProxyJump,
 		CollectorPreference: host.CollectorPreference,
+	}
+
+	collectCtx := ctx
+	if host.CollectorTimeoutMs != nil && *host.CollectorTimeoutMs > 0 {
+		var cancel context.CancelFunc
+		collectCtx, cancel = context.WithTimeout(ctx, time.Duration(*host.CollectorTimeoutMs)*time.Millisecond)
+		defer cancel()
 	}
 
 	plan := effectivePlan(s.retry, host)
@@ -222,7 +239,7 @@ func (s *Scheduler) pollHost(ctx context.Context, host storage.Host) {
 
 	for attempt := 0; attempt < plan.maxAttempts; attempt++ {
 		attempts = attempt + 1
-		samples, err = s.collectors.Collect(ctx, collectorHost)
+		samples, err = s.collectors.Collect(collectCtx, collectorHost)
 		if err == nil {
 			break
 		}

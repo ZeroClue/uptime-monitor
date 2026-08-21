@@ -41,7 +41,9 @@ type Host struct {
 	User                string
 	KeyPath             string
 	Sudo                bool
-	Timeout             time.Duration
+	Timeout             time.Duration // per-command execution budget
+	SSHTimeout          time.Duration // connection phase budget; 0 = SSH client default (10s)
+	CollectorTimeout    time.Duration // whole-collect budget; 0 = scheduler default (30s)
 	ProxyJump           string
 	CollectorPreference string
 }

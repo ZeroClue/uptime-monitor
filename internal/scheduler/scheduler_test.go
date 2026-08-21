@@ -265,3 +265,68 @@ func (f *failingCollector) Name() string { return f.name }
 func (f *failingCollector) Collect(ctx context.Context, host collector.Host) ([]collector.Sample, error) {
 	return nil, collector.ErrCollectorFailed
 }
+
+func TestScheduler_CollectorTimeoutEnforced(t *testing.T) {
+	db, err := storage.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	slow := int64(50) // 50ms collector budget
+	if err := db.SeedHosts([]config.Host{{Name: "slow", Connection: "ssh", Endpoint: "10.0.0.1", Port: 22, Timeout: 5 * time.Second}}); err != nil {
+		t.Fatal(err)
+	}
+	retrieved, _ := db.GetHosts()
+	host := retrieved[0]
+	host.CollectorTimeoutMs = &slow
+	if err := db.UpdateHost(context.Background(), &host); err != nil {
+		t.Fatal(err)
+	}
+
+	hang := &sleepCollector{d: 2 * time.Second}
+	sched := NewWithRetry(30*time.Second, db, collector.NewChain(hang), nil, config.RetryConfig{MaxRetries: 1})
+
+	start := time.Now()
+	sched.pollHost(context.Background(), host)
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("collector budget not enforced; poll took %v", elapsed)
+	}
+	status := sched.GetHostStatus(host.ID)
+	if status == nil || status.ConsecutiveFails == 0 {
+		t.Fatal("expected failure when collector exceeds budget")
+	}
+}
+
+type sleepCollector struct{ d time.Duration }
+
+func (s *sleepCollector) Name() string { return "sleep" }
+func (s *sleepCollector) Collect(ctx context.Context, host collector.Host) ([]collector.Sample, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(s.d):
+		return nil, errors.New("finished too late")
+	}
+}
+
+func TestDurationFromMs(t *testing.T) {
+	cases := []struct {
+		in   *int64
+		want time.Duration
+	}{
+		{nil, 0},
+		{int64Ptr(0), 0},
+		{int64Ptr(-5), 0},
+		{int64Ptr(1500), 1500 * time.Millisecond},
+	}
+	for _, tc := range cases {
+		if got := durationFromMs(tc.in); got != tc.want {
+			t.Errorf("durationFromMs(%v) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}
+
+func int64Ptr(v int64) *int64 { return &v }

@@ -178,6 +178,8 @@ func (db *DB) Migrate() error {
 		`ALTER TABLE hosts ADD COLUMN retry_max_retries INTEGER`,
 		`ALTER TABLE hosts ADD COLUMN retry_base_delay_ms INTEGER`,
 		`ALTER TABLE hosts ADD COLUMN retry_max_delay_ms INTEGER`,
+		`ALTER TABLE hosts ADD COLUMN ssh_timeout_ms INTEGER`,
+		`ALTER TABLE hosts ADD COLUMN collector_timeout_ms INTEGER`,
 	} {
 		if _, err := db.Exec(col); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return fmt.Errorf("migration failed: %w", err)

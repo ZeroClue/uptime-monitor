@@ -58,6 +58,8 @@ type Host struct {
 	RetryMaxRetries     *int64        `json:"retry_max_retries"`
 	RetryBaseMs         *int64        `json:"retry_base_delay_ms"`
 	RetryMaxMs          *int64        `json:"retry_max_delay_ms"`
+	SshTimeoutMs        *int64        `json:"ssh_timeout_ms"`       // connection phase; default 10s
+	CollectorTimeoutMs  *int64        `json:"collector_timeout_ms"` // whole-collect budget; default 30s
 }
 
 type Alert struct {
