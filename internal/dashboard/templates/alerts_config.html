@@ -244,15 +244,25 @@
         );
     }
 
+    function currentProjectId() {
+        const pid = new URLSearchParams(window.location.search).get('project_id');
+        return pid ? parseInt(pid, 10) : null;
+    }
+
+    function scopeUrl(path) {
+        const pid = new URLSearchParams(window.location.search).get('project_id');
+        return pid ? path + '?project_id=' + encodeURIComponent(pid) : path;
+    }
+
     // Rules
     async function loadRules() {
-        rules = await apiGet('/api/alert-rules');
+        rules = await apiGet(scopeUrl('/api/alert-rules'));
         renderRules();
     }
 
     function renderRules() {
         const tbody = document.getElementById('rulesBody');
-        tbody.innerHTML = rules.map(r => `
+        tbody.innerHTML = (rules || []).map(r => `
             <tr>
                 <td>${r.metric}</td>
                 <td>${r.scope}${r.host_id ? ' (Host ' + r.host_id + ')' : ''}</td>
@@ -327,6 +337,7 @@
             if (id) {
                 await apiPut('/api/alert-rules/' + id, data);
             } else {
+                data.project_id = currentProjectId();
                 await apiPost('/api/alert-rules', data);
             }
             closeRuleModal();
@@ -353,13 +364,13 @@
 
     // Channels
     async function loadChannels() {
-        channels = await apiGet('/api/notification-channels');
+        channels = await apiGet(scopeUrl('/api/notification-channels'));
         renderChannels();
     }
 
     function renderChannels() {
         const tbody = document.getElementById('channelsBody');
-        tbody.innerHTML = channels.map(c => `
+        tbody.innerHTML = (channels || []).map(c => `
             <tr>
                 <td>${c.name}</td>
                 <td>${c.type}</td>
@@ -489,8 +500,8 @@
         }
     }
 
-    // Init
-    document.addEventListener('DOMContentLoaded', async () => {
+
+    async function submitChannel(e) {
         e.preventDefault();
         const form = e.target;
         const data = {
@@ -504,6 +515,7 @@
             if (id) {
                 await apiPut('/api/notification-channels/' + id, data);
             } else {
+                data.project_id = currentProjectId();
                 await apiPost('/api/notification-channels', data);
             }
             closeChannelModal();

@@ -176,3 +176,61 @@ func TestHostTimeoutRoundtrip(t *testing.T) {
 		t.Errorf("collector override should survive update: %v", cleared.CollectorTimeoutMs)
 	}
 }
+
+func TestRulesAndChannels_ProjectScoping(t *testing.T) {
+	db := newTestProjectDB(t)
+	ctx := context.Background()
+
+	projA, err := db.CreateProject(ctx, &Project{Name: "rules-a", Type: "explicit"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pA := projA
+
+	globalRuleID, err := db.CreateAlertRule(ctx, &AlertRule{Metric: "cpu.user_pct", Scope: "global", Warning: 80, Critical: 90})
+	if err != nil {
+		t.Fatal(err)
+	}
+	projRuleID, err := db.CreateAlertRule(ctx, &AlertRule{Metric: "mem.used_pct", Scope: "global", Warning: 70, Critical: 85, ProjectID: &pA})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = globalRuleID
+	_ = projRuleID
+
+	if _, err := db.CreateNotificationChannel(ctx, &NotificationChannel{Name: "chan-global", Type: "webhook", Config: "{}"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.CreateNotificationChannel(ctx, &NotificationChannel{Name: "chan-a", Type: "webhook", Config: "{}", ProjectID: &pA}); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("nil filter returns everything incl. globals", func(t *testing.T) {
+		rules, err := db.GetAlertRulesByProject(ctx, nil)
+		if err != nil || len(rules) != 2 {
+			t.Fatalf("want 2 rules, got %d, %v", len(rules), err)
+		}
+		chans, err := db.GetNotificationChannelsByProject(ctx, nil)
+		if err != nil || len(chans) != 2 {
+			t.Fatalf("want 2 channels, got %d, %v", len(chans), err)
+		}
+	})
+
+	t.Run("project filter returns globals + own", func(t *testing.T) {
+		rules, err := db.GetAlertRulesByProject(ctx, &pA)
+		if err != nil || len(rules) != 2 {
+			t.Fatalf("want 2 (global+own), got %d, %v", len(rules), err)
+		}
+		chans, err := db.GetNotificationChannelsByProject(ctx, &pA)
+		if err != nil || len(chans) != 2 {
+			t.Fatalf("want 2 (global+own), got %d, %v", len(chans), err)
+		}
+	})
+
+	t.Run("roundtrip preserves project_id", func(t *testing.T) {
+		got, err := db.GetAlertRule(ctx, projRuleID)
+		if err != nil || got == nil || got.ProjectID == nil || *got.ProjectID != pA {
+			t.Fatalf("rule project lost: %+v %v", got, err)
+		}
+	})
+}

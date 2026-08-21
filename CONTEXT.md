@@ -59,6 +59,7 @@ hosts:
 | 1-hour aggregate retention | Forever | Capacity planning |
 | Collector fallback order | 1) Local procfs (connection=local only) 2) SSH+psutil 3) SSH+/proc+df 4) Tailscale+same 5) SNMP/node_exporter (later) | Progressive enhancement; works on any Linux host |
 | Failed polls retry with exponential backoff; auth/host-key errors never retry | Transient faults shouldn't flap hosts down; permanent failures shouldn't burn attempts | Retrying auth would lock accounts; backoff bounds thundering-herd on recovery |
+| Alert rules/channels with a project apply only within it; project-less ones are global | Isolation without forcing everyone to assign projects | Global rules remain useful for single-project installs |
 | Core metric schema | cpu, mem, disk, net, uptime namespaces (see CONTEXT.md) | Covers 90% of infra monitoring needs |
 | GPU / per-process / containers | Deferred to v2 | Out of scope for MVP |
 | Real-time updates | Poll on load + manual refresh | No WebSocket complexity |

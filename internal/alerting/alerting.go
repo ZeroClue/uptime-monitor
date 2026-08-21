@@ -227,11 +227,21 @@ func (e *Engine) evaluateAlerts(ctx context.Context) {
 		}
 
 		// Metric threshold alerts
-		e.checkMetricThresholds(ctx, h.ID, h.Name, rules)
+		e.checkMetricThresholds(ctx, h.ID, h.Name, h.ProjectID, rules)
 	}
 }
 
-func (e *Engine) checkMetricThresholds(ctx context.Context, hostID int64, hostName string, rules []storage.AlertRule) {
+// ruleMatchesProject: a rule applies to a host when the rule is global
+// (nil project) or scoped to the host's own project. Hosts without a
+// project only match global rules.
+func ruleMatchesProject(rule storage.AlertRule, hostProject *int64) bool {
+	if rule.ProjectID == nil {
+		return true
+	}
+	return hostProject != nil && *rule.ProjectID == *hostProject
+}
+
+func (e *Engine) checkMetricThresholds(ctx context.Context, hostID int64, hostName string, hostProject *int64, rules []storage.AlertRule) {
 	for _, rule := range rules {
 		if !rule.Enabled {
 			continue
@@ -239,6 +249,9 @@ func (e *Engine) checkMetricThresholds(ctx context.Context, hostID int64, hostNa
 
 		// Check if rule applies to this host
 		if rule.Scope == "host" && rule.HostID != nil && *rule.HostID != hostID {
+			continue
+		}
+		if !ruleMatchesProject(rule, hostProject) {
 			continue
 		}
 

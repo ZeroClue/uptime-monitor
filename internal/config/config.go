@@ -51,6 +51,7 @@ type Host struct {
 	ProxyJump           string         `yaml:"proxy_jump"`
 	Tags                []string       `yaml:"tags"`
 	CollectorPreference string         `yaml:"collector_preference"`
+	ProjectID           *int64         `yaml:"project_id"`
 	RetryMaxRetries     *int64         `yaml:"retry_max_retries"`
 	RetryBaseDelay      *time.Duration `yaml:"retry_base_delay"`
 	RetryMaxDelay       *time.Duration `yaml:"retry_max_delay"`

@@ -175,13 +175,16 @@ func (db *DB) DeleteAllAlerts(ctx context.Context, severity string) error {
 }
 
 func scanAlertRuleRow(row interface{ Scan(...any) error }, r *AlertRule) error {
-	var hostID sql.NullInt64
+	var hostID, projectID sql.NullInt64
 	var createdAt, updatedAt int64
-	if err := row.Scan(&r.ID, &r.Metric, &r.Scope, &hostID, &r.Warning, &r.Critical, &r.Below, &r.Enabled, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(&r.ID, &r.Metric, &r.Scope, &hostID, &r.Warning, &r.Critical, &r.Below, &r.Enabled, &projectID, &createdAt, &updatedAt); err != nil {
 		return err
 	}
 	if hostID.Valid {
 		r.HostID = &hostID.Int64
+	}
+	if projectID.Valid {
+		r.ProjectID = &projectID.Int64
 	}
 	r.CreatedAt = time.Unix(createdAt, 0)
 	r.UpdatedAt = time.Unix(updatedAt, 0)
@@ -189,24 +192,11 @@ func scanAlertRuleRow(row interface{ Scan(...any) error }, r *AlertRule) error {
 }
 
 func (db *DB) GetAlertRules(ctx context.Context) ([]AlertRule, error) {
-	rows, err := db.QueryContext(ctx, `SELECT id, metric, scope, host_id, warning, critical, below, enabled, created_at, updated_at FROM alert_rules ORDER BY created_at DESC`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var rules []AlertRule
-	for rows.Next() {
-		var r AlertRule
-		if err := scanAlertRuleRow(rows, &r); err != nil {
-			return nil, err
-		}
-		rules = append(rules, r)
-	}
-	return rules, nil
+	return db.GetAlertRulesByProject(ctx, nil)
 }
 
 func (db *DB) GetAlertRule(ctx context.Context, id int64) (*AlertRule, error) {
-	row := db.QueryRowContext(ctx, `SELECT id, metric, scope, host_id, warning, critical, below, enabled, created_at, updated_at FROM alert_rules WHERE id = ?`, id)
+	row := db.QueryRowContext(ctx, `SELECT id, metric, scope, host_id, warning, critical, below, enabled, project_id, created_at, updated_at FROM alert_rules WHERE id = ?`, id)
 	var r AlertRule
 	if err := scanAlertRuleRow(row, &r); err == sql.ErrNoRows {
 		return nil, nil
@@ -224,8 +214,8 @@ func (db *DB) CreateAlertRule(ctx context.Context, rule *AlertRule) (int64, erro
 	if rule.HostID != nil {
 		hostID = rule.HostID
 	}
-	res, err := db.ExecContext(ctx, `INSERT INTO alert_rules (metric, scope, host_id, warning, critical, below, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		rule.Metric, rule.Scope, hostID, rule.Warning, rule.Critical, rule.Below, rule.Enabled, now, now)
+	res, err := db.ExecContext(ctx, `INSERT INTO alert_rules (metric, scope, host_id, warning, critical, below, enabled, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		rule.Metric, rule.Scope, hostID, rule.Warning, rule.Critical, rule.Below, rule.Enabled, rule.ProjectID, now, now)
 	if err != nil {
 		return 0, err
 	}
@@ -239,8 +229,8 @@ func (db *DB) UpdateAlertRule(ctx context.Context, rule *AlertRule) error {
 	if rule.HostID != nil {
 		hostID = rule.HostID
 	}
-	_, err := db.ExecContext(ctx, `UPDATE alert_rules SET metric = ?, scope = ?, host_id = ?, warning = ?, critical = ?, below = ?, enabled = ?, updated_at = ? WHERE id = ?`,
-		rule.Metric, rule.Scope, hostID, rule.Warning, rule.Critical, rule.Below, rule.Enabled, now, rule.ID)
+	_, err := db.ExecContext(ctx, `UPDATE alert_rules SET metric = ?, scope = ?, host_id = ?, warning = ?, critical = ?, below = ?, enabled = ?, project_id = ?, updated_at = ? WHERE id = ?`,
+		rule.Metric, rule.Scope, hostID, rule.Warning, rule.Critical, rule.Below, rule.Enabled, rule.ProjectID, now, rule.ID)
 	return err
 }
 
@@ -250,7 +240,7 @@ func (db *DB) DeleteAlertRule(ctx context.Context, id int64) error {
 }
 
 func (db *DB) GetAlertRulesForMetric(ctx context.Context, metric string) ([]AlertRule, error) {
-	rows, err := db.QueryContext(ctx, `SELECT id, metric, scope, host_id, warning, critical, below, enabled, created_at, updated_at FROM alert_rules WHERE metric = ? AND enabled = 1 ORDER BY scope, host_id`, metric)
+	rows, err := db.QueryContext(ctx, `SELECT id, metric, scope, host_id, warning, critical, below, enabled, project_id, created_at, updated_at FROM alert_rules WHERE metric = ? AND enabled = 1 ORDER BY scope, host_id`, metric)
 	if err != nil {
 		return nil, err
 	}
@@ -267,9 +257,13 @@ func (db *DB) GetAlertRulesForMetric(ctx context.Context, metric string) ([]Aler
 }
 
 func scanNotificationChannelRow(row interface{ Scan(...any) error }, c *NotificationChannel) error {
+	var projectID sql.NullInt64
 	var createdAt, updatedAt int64
-	if err := row.Scan(&c.ID, &c.Name, &c.Type, &c.Config, &c.Enabled, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(&c.ID, &c.Name, &c.Type, &c.Config, &c.Enabled, &projectID, &createdAt, &updatedAt); err != nil {
 		return err
+	}
+	if projectID.Valid {
+		c.ProjectID = &projectID.Int64
 	}
 	c.CreatedAt = time.Unix(createdAt, 0)
 	c.UpdatedAt = time.Unix(updatedAt, 0)
@@ -277,12 +271,12 @@ func scanNotificationChannelRow(row interface{ Scan(...any) error }, c *Notifica
 }
 
 func (db *DB) GetNotificationChannels(ctx context.Context) ([]NotificationChannel, error) {
-	rows, err := db.QueryContext(ctx, `SELECT id, name, type, config, enabled, created_at, updated_at FROM notification_channels ORDER BY created_at DESC`)
+	rows, err := db.QueryContext(ctx, `SELECT id, name, type, config, enabled, project_id, created_at, updated_at FROM notification_channels ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var channels []NotificationChannel
+	channels := make([]NotificationChannel, 0)
 	for rows.Next() {
 		var c NotificationChannel
 		if err := scanNotificationChannelRow(rows, &c); err != nil {
@@ -294,7 +288,7 @@ func (db *DB) GetNotificationChannels(ctx context.Context) ([]NotificationChanne
 }
 
 func (db *DB) GetNotificationChannel(ctx context.Context, id int64) (*NotificationChannel, error) {
-	row := db.QueryRowContext(ctx, `SELECT id, name, type, config, enabled, created_at, updated_at FROM notification_channels WHERE id = ?`, id)
+	row := db.QueryRowContext(ctx, `SELECT id, name, type, config, enabled, project_id, created_at, updated_at FROM notification_channels WHERE id = ?`, id)
 	var c NotificationChannel
 	if err := scanNotificationChannelRow(row, &c); err == sql.ErrNoRows {
 		return nil, nil
@@ -308,8 +302,8 @@ func (db *DB) CreateNotificationChannel(ctx context.Context, channel *Notificati
 	now := time.Now().Unix()
 	channel.CreatedAt = time.Unix(now, 0)
 	channel.UpdatedAt = time.Unix(now, 0)
-	res, err := db.ExecContext(ctx, `INSERT INTO notification_channels (name, type, config, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		channel.Name, channel.Type, channel.Config, channel.Enabled, now, now)
+	res, err := db.ExecContext(ctx, `INSERT INTO notification_channels (name, type, config, enabled, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		channel.Name, channel.Type, channel.Config, channel.Enabled, channel.ProjectID, now, now)
 	if err != nil {
 		return 0, err
 	}
@@ -319,8 +313,8 @@ func (db *DB) CreateNotificationChannel(ctx context.Context, channel *Notificati
 func (db *DB) UpdateNotificationChannel(ctx context.Context, channel *NotificationChannel) error {
 	now := time.Now().Unix()
 	channel.UpdatedAt = time.Unix(now, 0)
-	_, err := db.ExecContext(ctx, `UPDATE notification_channels SET name = ?, type = ?, config = ?, enabled = ?, updated_at = ? WHERE id = ?`,
-		channel.Name, channel.Type, channel.Config, channel.Enabled, now, channel.ID)
+	_, err := db.ExecContext(ctx, `UPDATE notification_channels SET name = ?, type = ?, config = ?, enabled = ?, project_id = ?, updated_at = ? WHERE id = ?`,
+		channel.Name, channel.Type, channel.Config, channel.Enabled, channel.ProjectID, now, channel.ID)
 	return err
 }
 
@@ -330,12 +324,12 @@ func (db *DB) DeleteNotificationChannel(ctx context.Context, id int64) error {
 }
 
 func (db *DB) GetEnabledNotificationChannels(ctx context.Context) ([]NotificationChannel, error) {
-	rows, err := db.QueryContext(ctx, `SELECT id, name, type, config, enabled, created_at, updated_at FROM notification_channels WHERE enabled = 1 ORDER BY created_at DESC`)
+	rows, err := db.QueryContext(ctx, `SELECT id, name, type, config, enabled, project_id, created_at, updated_at FROM notification_channels WHERE enabled = 1 ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var channels []NotificationChannel
+	channels := make([]NotificationChannel, 0)
 	for rows.Next() {
 		var c NotificationChannel
 		if err := scanNotificationChannelRow(rows, &c); err != nil {
@@ -398,4 +392,55 @@ func (db *DB) EnsureAlertConfig(ctx context.Context) error {
 		return err
 	}
 	return err
+}
+
+// GetAlertRulesByProject returns rules for a project; nil includes all rules
+// (global + every project). Rules with nil ProjectID are global and always included.
+func (db *DB) GetAlertRulesByProject(ctx context.Context, projectID *int64) ([]AlertRule, error) {
+	query := `SELECT id, metric, scope, host_id, warning, critical, below, enabled, project_id, created_at, updated_at FROM alert_rules`
+	args := []interface{}{}
+	if projectID != nil {
+		query += ` WHERE project_id IS NULL OR project_id = ?`
+		args = append(args, *projectID)
+	}
+	query += ` ORDER BY created_at DESC`
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	rules := make([]AlertRule, 0)
+	for rows.Next() {
+		var r AlertRule
+		if err := scanAlertRuleRow(rows, &r); err != nil {
+			return nil, err
+		}
+		rules = append(rules, r)
+	}
+	return rules, nil
+}
+
+// GetNotificationChannelsByProject mirrors GetAlertRulesByProject semantics.
+func (db *DB) GetNotificationChannelsByProject(ctx context.Context, projectID *int64) ([]NotificationChannel, error) {
+	query := `SELECT id, name, type, config, enabled, project_id, created_at, updated_at FROM notification_channels`
+	args := []interface{}{}
+	if projectID != nil {
+		query += ` WHERE project_id IS NULL OR project_id = ?`
+		args = append(args, *projectID)
+	}
+	query += ` ORDER BY created_at DESC`
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	channels := make([]NotificationChannel, 0)
+	for rows.Next() {
+		var c NotificationChannel
+		if err := scanNotificationChannelRow(rows, &c); err != nil {
+			return nil, err
+		}
+		channels = append(channels, c)
+	}
+	return channels, nil
 }
