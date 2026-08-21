@@ -333,6 +333,8 @@ Then configure hosts with `connection: tailscale` and they'll route through the 
 
 Hosts and alerts can be scoped to projects. The nav bar's project switcher filters the hosts list and alerts pages via `?project_id=`; API endpoints accept the same param (or an `X-Project-ID` header). On startup the monitor auto-creates a `Default` project and assigns any unassigned hosts to it.
 
+Alert rules and notification channels participate in scoping: rules with a project apply only to hosts in that project; rules without one are global. `/alerts/config` lists and creates within the active project (new rules inherit it; omit `project_id` in the API to create globals).
+
 ### Poll retries
 
 Failed polls retry with exponential backoff — `delay = min(base_delay * 2^attempt + jitter, max_delay)`. Defaults: 3 attempts, 2s base, 30s max, 0.2 jitter; configure globally via the `retry:` block in `hosts.yaml` or per host (`retry_max_retries`, `retry_base_delay`, `retry_max_delay`, or the host form). Authentication and host-key failures are never retried. The last poll's attempt count and total backoff time appear in `/api/hosts/status` (`poll_attempts`, `retry_time_ms`).

@@ -60,6 +60,7 @@ type Host struct {
 	RetryMaxMs          *int64        `json:"retry_max_delay_ms"`
 	SshTimeoutMs        *int64        `json:"ssh_timeout_ms"`       // connection phase; default 10s
 	CollectorTimeoutMs  *int64        `json:"collector_timeout_ms"` // whole-collect budget; default 30s
+	ProjectID           *int64        `json:"project_id"`
 }
 
 type Alert struct {
@@ -78,26 +79,28 @@ type Alert struct {
 }
 
 type AlertRule struct {
-	ID        int64
-	Metric    string
-	Scope     string // "global" or "host"
-	HostID    *int64
-	Warning   float64
-	Critical  float64
-	Below     bool
-	Enabled   bool
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID        int64     `json:"id"`
+	Metric    string    `json:"metric"`
+	Scope     string    `json:"scope"` // "global" or "host"
+	HostID    *int64    `json:"host_id"`
+	ProjectID *int64    `json:"project_id"` // nil = applies to all projects
+	Warning   float64   `json:"warning"`
+	Critical  float64   `json:"critical"`
+	Below     bool      `json:"below"`
+	Enabled   bool      `json:"enabled"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type NotificationChannel struct {
-	ID        int64
-	Name      string
-	Type      string // "slack", "discord", "pagerduty", "webhook", "email"
-	Config    string // JSON config
-	Enabled   bool
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID        int64     `json:"id"`
+	Name      string    `json:"name"`
+	Type      string    `json:"type"` // "slack", "discord", "pagerduty", "webhook", "email"
+	Config    string    `json:"config"`
+	ProjectID *int64    `json:"project_id"` // nil = all projects
+	Enabled   bool      `json:"enabled"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type AlertConfig struct {

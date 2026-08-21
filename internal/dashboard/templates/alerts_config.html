@@ -246,7 +246,17 @@
 
     // Rules
     async function loadRules() {
-        rules = await apiGet('/api/alert-rules');
+        function currentProjectId() {
+            const pid = new URLSearchParams(window.location.search).get('project_id');
+            return pid ? parseInt(pid, 10) : null;
+        }
+
+        function scopeUrl(path) {
+            const pid = new URLSearchParams(window.location.search).get('project_id');
+            return pid ? path + '?project_id=' + encodeURIComponent(pid) : path;
+        }
+
+        rules = await apiGet(scopeUrl('/api/alert-rules'));
         renderRules();
     }
 
@@ -327,6 +337,7 @@
             if (id) {
                 await apiPut('/api/alert-rules/' + id, data);
             } else {
+                data.project_id = currentProjectId();
                 await apiPost('/api/alert-rules', data);
             }
             closeRuleModal();
@@ -353,7 +364,7 @@
 
     // Channels
     async function loadChannels() {
-        channels = await apiGet('/api/notification-channels');
+        channels = await apiGet(scopeUrl('/api/notification-channels'));
         renderChannels();
     }
 
@@ -504,6 +515,7 @@
             if (id) {
                 await apiPut('/api/notification-channels/' + id, data);
             } else {
+                data.project_id = currentProjectId();
                 await apiPost('/api/notification-channels', data);
             }
             closeChannelModal();

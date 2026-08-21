@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -382,5 +383,53 @@ func TestAPITokenFromContext(t *testing.T) {
 	got := APITokenFromContext(ctx)
 	if got != want {
 		t.Errorf("expected %+v, got %+v", want, got)
+	}
+}
+
+func TestAPIAlertRules_ProjectScopedViaContext(t *testing.T) {
+	s := newTestServer(t)
+	ctx := context.Background()
+
+	projectA, err := s.db.CreateProject(ctx, &storage.Project{Name: "rules-proj", Type: "explicit"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// POST without body project_id inherits the request's project scope.
+	handler := s.projectMiddleware(s.handleAPIAlertRules)
+	req := httptest.NewRequest(http.MethodPost, "/api/alert-rules?project_id="+strconv.FormatInt(projectA, 10), strings.NewReader(`{"metric":"cpu.user_pct","scope":"global","warning":80,"critical":90}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	handler(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+	var created storage.AlertRule
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.ProjectID == nil || *created.ProjectID != projectA {
+		t.Fatalf("expected rule to inherit project scope, got %+v", created.ProjectID)
+	}
+
+	// GET within the same scope sees it; unscoped view sees it too (globals+own).
+	req = httptest.NewRequest(http.MethodGet, "/api/alert-rules?project_id="+strconv.FormatInt(projectA, 10), nil)
+	rec = httptest.NewRecorder()
+	handler(rec, req)
+	var scoped []storage.AlertRule
+	if err := json.Unmarshal(rec.Body.Bytes(), &scoped); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, r := range scoped {
+		if r.ID == created.ID {
+			found = true
+			if r.Metric != "cpu.user_pct" || r.Warning != 80 {
+				t.Fatalf("field mapping wrong: %+v", r)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("scoped rule not visible in its project view")
 	}
 }

@@ -100,10 +100,10 @@ func (s *Server) Run(ctx context.Context) {
 	mux.HandleFunc("/api/host/", s.authMiddleware(s.handleAPIHost))
 	mux.HandleFunc("/api/compare", s.authMiddleware(s.handleAPICompare))
 	mux.HandleFunc("/api/alerts", s.authMiddleware(s.projectMiddleware(s.handleAPIAlerts)))
-	mux.HandleFunc("/api/alert-rules", s.authMiddleware(s.handleAPIAlertRules))
-	mux.HandleFunc("/api/alert-rules/", s.authMiddleware(s.handleAPIAlertRuleByID))
-	mux.HandleFunc("/api/notification-channels", s.authMiddleware(s.handleAPINotificationChannels))
-	mux.HandleFunc("/api/notification-channels/", s.authMiddleware(s.handleAPINotificationChannelByID))
+	mux.HandleFunc("/api/alert-rules", s.authMiddleware(s.projectMiddleware(s.handleAPIAlertRules)))
+	mux.HandleFunc("/api/alert-rules/", s.authMiddleware(s.projectMiddleware(s.handleAPIAlertRuleByID)))
+	mux.HandleFunc("/api/notification-channels", s.authMiddleware(s.projectMiddleware(s.handleAPINotificationChannels)))
+	mux.HandleFunc("/api/notification-channels/", s.authMiddleware(s.projectMiddleware(s.handleAPINotificationChannelByID)))
 	mux.HandleFunc("/api/api-tokens", s.authMiddleware(s.handleAPIAPITokens))
 	mux.HandleFunc("/api/api-tokens/", s.authMiddleware(s.handleAPIAPITokenByID))
 	mux.HandleFunc("/api/projects", s.authMiddleware(s.handleAPIProjects))
@@ -1102,7 +1102,7 @@ func (s *Server) handleAPIAlerts(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAPIAlertRules(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		rules, err := s.db.GetAlertRules(r.Context())
+		rules, err := s.db.GetAlertRulesByProject(r.Context(), projectIDFromContext(r.Context()))
 		if err != nil {
 			s.logger.Error("failed to get alert rules", "error", err)
 			http.Error(w, "Internal error", http.StatusInternalServerError)
@@ -1115,6 +1115,9 @@ func (s *Server) handleAPIAlertRules(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewDecoder(r.Body).Decode(&rule); err != nil {
 			http.Error(w, "Invalid JSON", http.StatusBadRequest)
 			return
+		}
+		if rule.ProjectID == nil {
+			rule.ProjectID = projectIDFromContext(r.Context())
 		}
 		id, err := s.db.CreateAlertRule(r.Context(), &rule)
 		if err != nil {
@@ -1182,7 +1185,7 @@ func (s *Server) handleAPIAlertRuleByID(w http.ResponseWriter, r *http.Request) 
 func (s *Server) handleAPINotificationChannels(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		channels, err := s.db.GetNotificationChannels(r.Context())
+		channels, err := s.db.GetNotificationChannelsByProject(r.Context(), projectIDFromContext(r.Context()))
 		if err != nil {
 			s.logger.Error("failed to get notification channels", "error", err)
 			http.Error(w, "Internal error", http.StatusInternalServerError)
@@ -1195,6 +1198,9 @@ func (s *Server) handleAPINotificationChannels(w http.ResponseWriter, r *http.Re
 		if err := json.NewDecoder(r.Body).Decode(&channel); err != nil {
 			http.Error(w, "Invalid JSON", http.StatusBadRequest)
 			return
+		}
+		if channel.ProjectID == nil {
+			channel.ProjectID = projectIDFromContext(r.Context())
 		}
 		id, err := s.db.CreateNotificationChannel(r.Context(), &channel)
 		if err != nil {
