@@ -3,7 +3,6 @@ package scheduler
 import (
 	"context"
 	"errors"
-	"math/rand"
 	"testing"
 	"time"
 
@@ -224,10 +223,10 @@ func TestRetryable_Classification(t *testing.T) {
 
 func TestBackoffDelay_ExponentialWithCeiling(t *testing.T) {
 	cfg := config.RetryConfig{BaseDelay: time.Second, MaxDelay: 8 * time.Second, JitterFraction: 0}
-	rng := rand.New(rand.NewSource(1))
+
 	want := []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 8 * time.Second}
 	for attempt, w := range want {
-		got := backoffDelay(cfg, attempt, rng)
+		got := backoffDelay(cfg, attempt)
 		if got != w {
 			t.Errorf("attempt %d: got %v, want %v", attempt, got, w)
 		}

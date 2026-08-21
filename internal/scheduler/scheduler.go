@@ -19,7 +19,6 @@ type Scheduler struct {
 	collectors   *collector.Chain
 	logger       *slog.Logger
 	retry        config.RetryConfig
-	rng          *rand.Rand
 	mu           sync.RWMutex
 	hostStatuses map[int64]*HostStatus
 	stopCh       chan struct{}
@@ -50,7 +49,6 @@ func NewWithRetry(interval time.Duration, db *storage.DB, collectors *collector.
 		collectors:   collectors,
 		logger:       logger,
 		retry:        retry.WithDefaults(),
-		rng:          rand.New(rand.NewSource(time.Now().UnixNano())),
 		hostStatuses: make(map[int64]*HostStatus),
 		stopCh:       make(chan struct{}),
 	}
@@ -111,14 +109,12 @@ func (s *Scheduler) pollAll(ctx context.Context) {
 		return
 	}
 
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-
 	var wg sync.WaitGroup
 	for _, h := range hosts {
 		wg.Add(1)
 		go func(host storage.Host) {
 			defer wg.Done()
-			jitter := time.Duration(rng.Int63n(int64(s.interval / 10)))
+			jitter := time.Duration(rand.Int63n(int64(s.interval / 10)))
 			select {
 			case <-ctx.Done():
 				return
@@ -161,14 +157,15 @@ func retryable(err error) bool {
 }
 
 // backoffDelay computes delay = min(base * 2^attempt + jitter, max).
-func backoffDelay(cfg config.RetryConfig, attempt int, rng *rand.Rand) time.Duration {
+// Uses the package-level rand source (thread-safe: pollAll fans out per-host).
+func backoffDelay(cfg config.RetryConfig, attempt int) time.Duration {
 	d := cfg.BaseDelay << attempt // base * 2^attempt; overflow-safe enough for sane configs
 	if d <= 0 || d > cfg.MaxDelay {
 		d = cfg.MaxDelay
 	}
 	delay := d
 	if cfg.JitterFraction > 0 {
-		jitter := time.Duration(rng.Float64() * float64(delay) * cfg.JitterFraction)
+		jitter := time.Duration(rand.Float64() * float64(delay) * cfg.JitterFraction)
 		delay += jitter
 		if delay > cfg.MaxDelay {
 			delay = cfg.MaxDelay
@@ -239,7 +236,7 @@ func (s *Scheduler) pollHost(ctx context.Context, host storage.Host) {
 			BaseDelay:      plan.base,
 			MaxDelay:       plan.max,
 			JitterFraction: s.retry.JitterFraction,
-		}, attempt, s.rng)
+		}, attempt)
 		retryTime += delay
 		s.logger.Debug("poll failed, retrying", "host", host.Name, "attempt", attempts, "delay", delay, "error", err)
 		select {
