@@ -34,6 +34,10 @@ type AlertStore interface {
 // ProjectStore defines the interface for project persistence.
 type ProjectStore interface {
 	GetProjects(ctx context.Context) ([]Project, error)
+	GetProject(ctx context.Context, id int64) (*Project, error)
+	CreateProject(ctx context.Context, project *Project) (int64, error)
+	UpdateProject(ctx context.Context, project *Project) error
+	DeleteProject(ctx context.Context, id int64) error
 	GetProjectHosts(ctx context.Context, project Project) ([]Host, error)
 	GetProjectHealth(ctx context.Context, project Project, hostStatuses map[int64]HostStatusInfo) (string, error)
 }
@@ -71,4 +75,23 @@ type NotificationChannelStore interface {
 	UpdateNotificationChannel(ctx context.Context, channel *NotificationChannel) error
 	DeleteNotificationChannel(ctx context.Context, id int64) error
 	GetEnabledNotificationChannels(ctx context.Context) ([]NotificationChannel, error)
+}
+
+// UserStore defines the interface for user persistence.
+type UserStore interface {
+	GetUser(ctx context.Context, id int64) (*User, error)
+	GetUserByUsername(ctx context.Context, username string) (*User, error)
+	CreateUser(ctx context.Context, user *User) (int64, error)
+	UpdateUser(ctx context.Context, user *User) error
+	DeleteUser(ctx context.Context, id int64) error
+	GetUsers(ctx context.Context) ([]User, error)
+}
+
+// ProjectMemberStore defines the interface for project member persistence.
+type ProjectMemberStore interface {
+	GetProjectMembers(ctx context.Context, projectID int64) ([]ProjectMember, error)
+	AddProjectMember(ctx context.Context, projectID, userID int64, role string) (int64, error)
+	RemoveProjectMember(ctx context.Context, projectID, userID int64) error
+	UpdateProjectMemberRole(ctx context.Context, projectID, userID int64, role string) error
+	IsProjectMember(ctx context.Context, projectID, userID int64) (bool, error)
 }

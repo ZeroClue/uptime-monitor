@@ -56,14 +56,38 @@ func (db *DB) Migrate() error {
 			FOREIGN KEY (host_id) REFERENCES hosts(id)
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_samples_1h_host_metric_time ON samples_1h(host_id, metric, timestamp)`,
-		`CREATE TABLE IF NOT EXISTS projects (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name TEXT UNIQUE NOT NULL,
-			type TEXT NOT NULL,
-			tag_query TEXT,
-			host_ids TEXT,
-			created_at INTEGER NOT NULL
-		)`,
+`CREATE TABLE IF NOT EXISTS projects (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT UNIQUE NOT NULL,
+		type TEXT NOT NULL,
+		tag_query TEXT,
+		host_ids TEXT,
+		owner_id INTEGER,
+		isolation_level TEXT NOT NULL DEFAULT 'shared',
+		is_default BOOLEAN NOT NULL DEFAULT FALSE,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL,
+		FOREIGN KEY (owner_id) REFERENCES users(id)
+	)`,
+	`CREATE TABLE IF NOT EXISTS project_members (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		project_id INTEGER NOT NULL,
+		user_id INTEGER NOT NULL,
+		role TEXT NOT NULL DEFAULT 'member',
+		created_at INTEGER NOT NULL,
+		FOREIGN KEY (project_id) REFERENCES projects(id),
+		FOREIGN KEY (user_id) REFERENCES users(id),
+		UNIQUE(project_id, user_id)
+	)`,
+	`CREATE TABLE IF NOT EXISTS users (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		username TEXT UNIQUE NOT NULL,
+		password_hash TEXT NOT NULL,
+		email TEXT,
+		role TEXT NOT NULL DEFAULT 'user',
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
+	)`,
 		`CREATE TABLE IF NOT EXISTS alerts (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			host_id INTEGER NOT NULL,

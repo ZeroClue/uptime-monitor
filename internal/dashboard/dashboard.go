@@ -99,6 +99,8 @@ func (s *Server) Run(ctx context.Context) {
 	mux.HandleFunc("/api/alert-rules/", s.authMiddleware(s.handleAPIAlertRuleByID))
 	mux.HandleFunc("/api/notification-channels", s.authMiddleware(s.handleAPINotificationChannels))
 	mux.HandleFunc("/api/notification-channels/", s.authMiddleware(s.handleAPINotificationChannelByID))
+	mux.HandleFunc("/api/projects", s.authMiddleware(s.handleAPIProjects))
+	mux.HandleFunc("/api/projects/", s.authMiddleware(s.handleAPIProjectByID))
 	mux.HandleFunc("/api/monitor", s.authMiddleware(s.handleAPIMonitor))
 	if s.static != nil {
 		mux.Handle("/static/", s.static)
@@ -369,14 +371,78 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAPIProjects(w http.ResponseWriter, r *http.Request) {
-	projects, err := s.db.GetProjects(r.Context())
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	switch r.Method {
+	case http.MethodGet:
+		projects, err := s.db.GetProjects(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(projects)
+	case http.MethodPost:
+		var project storage.Project
+		if err := json.NewDecoder(r.Body).Decode(&project); err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+		id, err := s.db.CreateProject(r.Context(), &project)
+		if err != nil {
+			s.logger.Error("failed to create project", "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		project.ID = id
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(project)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
+}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(projects)
+func (s *Server) handleAPIProjectByID(w http.ResponseWriter, r *http.Request) {
+	idStr := strings.TrimPrefix(r.URL.Path, "/api/projects/")
+	id := mustParseInt64(idStr)
+
+	switch r.Method {
+	case http.MethodGet:
+		project, err := s.db.GetProject(r.Context(), id)
+		if err != nil {
+			s.logger.Error("failed to get project", "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		if project == nil {
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(project)
+	case http.MethodPut:
+		var project storage.Project
+		if err := json.NewDecoder(r.Body).Decode(&project); err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+		project.ID = id
+		if err := s.db.UpdateProject(r.Context(), &project); err != nil {
+			s.logger.Error("failed to update project", "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(project)
+	case http.MethodDelete:
+		if err := s.db.DeleteProject(r.Context(), id); err != nil {
+			s.logger.Error("failed to delete project", "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 func (s *Server) handleAPIHosts(w http.ResponseWriter, r *http.Request) {

@@ -104,11 +104,34 @@ type AlertConfig struct {
 }
 
 type Project struct {
-	ID       int64
-	Name     string
-	Type     string // "tag_query" or "explicit"
-	TagQuery string
-	HostIDs  []int64
+	ID              int64
+	Name            string
+	Type            string // "tag_query" or "explicit"
+	TagQuery        string
+	HostIDs         []int64
+	OwnerID         *int64
+	IsolationLevel  string
+	IsDefault       bool
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
+type User struct {
+	ID           int64
+	Username     string
+	PasswordHash string
+	Email        string
+	Role         string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+type ProjectMember struct {
+	ID        int64
+	ProjectID int64
+	UserID    int64
+	Role      string
+	CreatedAt time.Time
 }
 
 type Sample struct {
