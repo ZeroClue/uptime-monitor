@@ -355,7 +355,7 @@ New and changed keys are logged for audit. The file location is configurable via
 
 ### Host health
 
-`/api/hosts/status` reports per-host connectivity: `reachable`, `last_poll`, `collector`, `latency_ms`, `last_error`, plus retry stats (`poll_attempts`, `retry_time_ms`). The host list status badge tooltips and the host detail header badge show the same detail; the self-monitor page adds attempts and latency columns to its collector-health table.
+`/api/hosts/status` reports per-host connectivity: `reachable`, `last_poll`, `collector`, `latency_ms` (wall-clock including any retry backoff), `last_error`, plus retry stats (`poll_attempts`, `retry_time_ms`). The host list status badge tooltips and the host detail header badge show the same detail; the self-monitor page adds attempts and latency columns to its collector-health table.
 
 ### Host timeouts
 

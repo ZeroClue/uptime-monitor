@@ -73,7 +73,8 @@
         if (s.collector) parts.push('collector: ' + s.collector);
         if (s.latency_ms) parts.push('latency: ' + s.latency_ms + 'ms');
         if (s.last_error) parts.push('error: ' + s.last_error);
-        return parts.join('\n');
+        // quote-safe for attribute interpolation in renderRows
+        return parts.join('\n').replace(/"/g, '&quot;');
     }
 
     function rowFor(host) {

@@ -360,15 +360,11 @@ func TestScheduler_HealthTracking(t *testing.T) {
 	if st.ConsecutiveFails != 1 {
 		t.Fatalf("expected 1 fail, got %d", st.ConsecutiveFails)
 	}
-	before := st.LastFailure
 
 	sched.pollHost(context.Background(), h)
 	st = sched.GetHostStatus(h.ID)
 	if st.ConsecutiveFails != 0 {
 		t.Fatalf("expected recovered, got fails=%d err=%s", st.ConsecutiveFails, st.LastError)
-	}
-	if !st.LastFailure.After(before) == false && st.LastFailure.Equal(before) == false {
-		t.Log("failure timestamp unchanged after success (acceptable)")
 	}
 	if st.LastLatency <= 0 {
 		t.Error("expected positive latency on successful poll")
