@@ -1,0 +1,26 @@
+{
+  "name": "test123",
+  "version": "1.0.0",
+  "description": "A self-hosted, single-binary monitoring solution that polls Linux hosts over SSH or Tailscale, collects system metrics, stores them in embedded SQLite, and serves a Chart.js dashboard.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ZeroClue/uptime-monitor.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/ZeroClue/uptime-monitor/issues"
+  },
+  "homepage": "https://github.com/ZeroClue/uptime-monitor#readme",
+  "dependencies": {
+    "playwright": "^1.62.1"
+  }
+}

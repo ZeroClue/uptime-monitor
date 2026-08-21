@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -54,4 +55,43 @@ func (db *DB) SeedHosts(hosts []config.Host) error {
 		}
 	}
 	return nil
+}
+
+func (db *DB) CreateHost(ctx context.Context, h *Host) (int64, error) {
+	tags, _ := json.Marshal(h.Tags)
+	res, err := db.ExecContext(ctx, `
+		INSERT INTO hosts (name, connection, endpoint, port, user, key_path, sudo, timeout, proxy_jump, tags, collector_preference, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, h.Name, h.Connection, h.Endpoint, h.Port, h.User, h.KeyPath, h.Sudo, h.TimeoutRaw, h.ProxyJump, string(tags), h.CollectorPreference, time.Now().Unix(), time.Now().Unix())
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (db *DB) GetHost(ctx context.Context, id int64) (*Host, error) {
+	row := db.QueryRowContext(ctx, `SELECT id, name, connection, endpoint, port, user, key_path, sudo, timeout, proxy_jump, tags, collector_preference FROM hosts WHERE id = ?`, id)
+	var h Host
+	var tagsJSON string
+	if err := row.Scan(&h.ID, &h.Name, &h.Connection, &h.Endpoint, &h.Port, &h.User, &h.KeyPath, &h.Sudo, &h.TimeoutRaw, &h.ProxyJump, &tagsJSON, &h.CollectorPreference); err != nil {
+		return nil, err
+	}
+	h.Timeout = time.Duration(h.TimeoutRaw)
+	h.Tags = parseTags(tagsJSON)
+	return &h, nil
+}
+
+func (db *DB) UpdateHost(ctx context.Context, h *Host) error {
+	tags, _ := json.Marshal(h.Tags)
+	_, err := db.ExecContext(ctx, `
+		UPDATE hosts SET
+			name = ?, connection = ?, endpoint = ?, port = ?, user = ?, key_path = ?, sudo = ?, timeout = ?, proxy_jump = ?, tags = ?, collector_preference = ?, updated_at = ?
+		WHERE id = ?
+	`, h.Name, h.Connection, h.Endpoint, h.Port, h.User, h.KeyPath, h.Sudo, h.TimeoutRaw, h.ProxyJump, string(tags), h.CollectorPreference, time.Now().Unix(), h.ID)
+	return err
+}
+
+func (db *DB) DeleteHost(ctx context.Context, id int64) error {
+	_, err := db.ExecContext(ctx, `DELETE FROM hosts WHERE id = ?`, id)
+	return err
 }
