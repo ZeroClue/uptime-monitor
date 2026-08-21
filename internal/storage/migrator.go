@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"strings"
 )
 
 func (db *DB) Migrate() error {
@@ -19,6 +20,7 @@ func (db *DB) Migrate() error {
 			proxy_jump TEXT,
 			tags TEXT,
 			collector_preference TEXT,
+			project_id INTEGER,
 			created_at INTEGER NOT NULL,
 			updated_at INTEGER NOT NULL
 		)`,
@@ -156,5 +158,14 @@ func (db *DB) Migrate() error {
 			return fmt.Errorf("migration failed: %w", err)
 		}
 	}
+
+	// Add project_id column to hosts table if it doesn't exist
+	// SQLite doesn't support IF NOT EXISTS for ALTER TABLE ADD COLUMN,
+	// so we ignore the "duplicate column" error
+	_, err := db.Exec(`ALTER TABLE hosts ADD COLUMN project_id INTEGER`)
+	if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+		return fmt.Errorf("migration failed: %w", err)
+	}
+
 	return nil
 }

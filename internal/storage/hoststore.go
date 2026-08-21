@@ -11,7 +11,21 @@ import (
 
 // HostStore methods on *DB
 func (db *DB) GetHosts() ([]Host, error) {
-	rows, err := db.Query(`SELECT id, name, connection, endpoint, port, user, key_path, sudo, timeout, proxy_jump, tags, collector_preference FROM hosts`)
+	return db.GetHostsByProject(context.Background(), nil)
+}
+
+func (db *DB) GetHostsByProject(ctx context.Context, projectID interface{}) ([]Host, error) {
+	var query string
+	var args []interface{}
+	
+	if projectID == nil {
+		query = `SELECT id, name, connection, endpoint, port, user, key_path, sudo, timeout, proxy_jump, tags, collector_preference FROM hosts`
+	} else {
+		query = `SELECT id, name, connection, endpoint, port, user, key_path, sudo, timeout, proxy_jump, tags, collector_preference FROM hosts WHERE project_id = ?`
+		args = append(args, projectID)
+	}
+	
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -21,10 +35,11 @@ func (db *DB) GetHosts() ([]Host, error) {
 	for rows.Next() {
 		var h Host
 		var tagsJSON string
-		if err := rows.Scan(&h.ID, &h.Name, &h.Connection, &h.Endpoint, &h.Port, &h.User, &h.KeyPath, &h.Sudo, &h.Timeout, &h.ProxyJump, &tagsJSON, &h.CollectorPreference); err != nil {
+		var timeoutRaw int64
+		if err := rows.Scan(&h.ID, &h.Name, &h.Connection, &h.Endpoint, &h.Port, &h.User, &h.KeyPath, &h.Sudo, &timeoutRaw, &h.ProxyJump, &tagsJSON, &h.CollectorPreference); err != nil {
 			return nil, err
 		}
-		h.Timeout = time.Duration(h.TimeoutRaw)
+		h.Timeout = time.Duration(timeoutRaw)
 		h.Tags = parseTags(tagsJSON)
 		hosts = append(hosts, h)
 	}
