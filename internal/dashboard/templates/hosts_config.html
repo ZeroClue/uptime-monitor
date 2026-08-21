@@ -73,6 +73,18 @@
                     <input type="number" name="timeout" id="hostTimeout" value="10" min="1" max="300" required>
                 </div>
             </div>
+            <div class="form-group">
+                <label for="hostRetryMax">Retry Attempts (blank = global default)</label>
+                <input type="number" name="retry_max_retries" id="hostRetryMax" min="1" max="10" placeholder="">
+            </div>
+            <div class="form-group">
+                <label for="hostRetryBase">Base Retry Delay (ms, blank = default)</label>
+                <input type="number" name="retry_base_delay_ms" id="hostRetryBase" min="0" step="100">
+            </div>
+            <div class="form-group">
+                <label for="hostRetryCeil">Max Retry Delay (ms, blank = default)</label>
+                <input type="number" name="retry_max_delay_ms" id="hostRetryCeil" min="0" step="100">
+            </div>
             <div class="form-group" id="proxyJumpGroup">
                 <label for="hostProxyJump">Proxy Jump</label>
                 <input type="text" name="proxy_jump" id="hostProxyJump" placeholder="user@jump-host:22">
@@ -147,6 +159,9 @@
             document.getElementById('hostProxyJump').value = host.proxy_jump || '';
             document.getElementById('hostTags').value = (host.tags || []).join(', ');
             document.getElementById('hostCollectorPreference').value = host.collector_preference || '';
+            document.getElementById('hostRetryMax').value = host.retry_max_retries || '';
+            document.getElementById('hostRetryBase').value = host.retry_base_delay_ms || '';
+            document.getElementById('hostRetryCeil').value = host.retry_max_delay_ms || '';
             document.getElementById('hostEnabled').checked = true; // no disabled field in storage yet
         } else {
             document.getElementById('hostModalTitle').textContent = 'Add Host';
@@ -213,6 +228,9 @@
             tags: form.tags.value.split(',').map(t => t.trim()).filter(Boolean),
             collector_preference: form.collector_preference.value,
         };
+        if (form.retry_max_retries.value) data.retry_max_retries = parseInt(form.retry_max_retries.value);
+        if (form.retry_base_delay_ms.value) data.retry_base_delay_ms = parseInt(form.retry_base_delay_ms.value);
+        if (form.retry_max_delay_ms.value) data.retry_max_delay_ms = parseInt(form.retry_max_delay_ms.value);
         const id = form.id.value;
         try {
             if (id) {

@@ -601,12 +601,14 @@ func (s *Server) handleAPIHostsDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 type HostStatusSummary struct {
-	HostID int64    `json:"host_id"`
-	Name   string   `json:"name"`
-	Status string   `json:"status"`
-	CPU    *float64 `json:"cpu_pct"`
-	Mem    *float64 `json:"mem_pct"`
-	Uptime *float64 `json:"uptime_seconds"`
+	HostID       int64    `json:"host_id"`
+	Name         string   `json:"name"`
+	Status       string   `json:"status"`
+	CPU          *float64 `json:"cpu_pct"`
+	Mem          *float64 `json:"mem_pct"`
+	Uptime       *float64 `json:"uptime_seconds"`
+	PollAttempts int      `json:"poll_attempts"`
+	RetryTimeMs  int64    `json:"retry_time_ms"`
 }
 
 func (s *Server) handleAPIHostsStatus(w http.ResponseWriter, r *http.Request) {
@@ -634,6 +636,8 @@ func (s *Server) handleAPIHostsStatus(w http.ResponseWriter, r *http.Request) {
 			default:
 				summary.Status = "down"
 			}
+			summary.PollAttempts = st.LastPollAttempts
+			summary.RetryTimeMs = st.LastRetryTime.Milliseconds()
 		} else {
 			summary.Status = "unknown"
 		}

@@ -23,6 +23,12 @@
 ## Host Config Schema (`hosts.yaml`)
 
 ```yaml
+retry:                     # global poll-retry policy
+  max_retries: 3           # attempts per poll (1 = no retry)
+  base_delay: 2s           # backoff doubles per attempt, capped by max_delay
+  max_delay: 30s
+  jitter: 0.2              # random fraction added to each delay
+
 hosts:
   - name: web-01
     connection: local        # ssh | tailscale | local
@@ -35,6 +41,9 @@ hosts:
     proxy_jump: ""           # optional SSH proxy jump host
     tags: [web, prod]        # for grouping / project queries
     collector_preference: "" # optional: force specific collector
+    retry_max_retries: 5     # optional per-host retry overrides; unset = global
+    retry_base_delay: 500ms
+    retry_max_delay: 15s
 ```
 
 ## Settled Decisions
@@ -49,6 +58,7 @@ hosts:
 | 1-min aggregate retention | 90 days | Operational dashboards |
 | 1-hour aggregate retention | Forever | Capacity planning |
 | Collector fallback order | 1) Local procfs (connection=local only) 2) SSH+psutil 3) SSH+/proc+df 4) Tailscale+same 5) SNMP/node_exporter (later) | Progressive enhancement; works on any Linux host |
+| Failed polls retry with exponential backoff; auth/host-key errors never retry | Transient faults shouldn't flap hosts down; permanent failures shouldn't burn attempts | Retrying auth would lock accounts; backoff bounds thundering-herd on recovery |
 | Core metric schema | cpu, mem, disk, net, uptime namespaces (see CONTEXT.md) | Covers 90% of infra monitoring needs |
 | GPU / per-process / containers | Deferred to v2 | Out of scope for MVP |
 | Real-time updates | Poll on load + manual refresh | No WebSocket complexity |

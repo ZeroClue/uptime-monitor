@@ -4,10 +4,12 @@ import (
 	"context"
 	"log/slog"
 	"math/rand"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/ZeroClue/uptime-monitor/internal/collector"
+	"github.com/ZeroClue/uptime-monitor/internal/config"
 	"github.com/ZeroClue/uptime-monitor/internal/storage"
 )
 
@@ -16,6 +18,7 @@ type Scheduler struct {
 	db           *storage.DB
 	collectors   *collector.Chain
 	logger       *slog.Logger
+	retry        config.RetryConfig
 	mu           sync.RWMutex
 	hostStatuses map[int64]*HostStatus
 	stopCh       chan struct{}
@@ -28,9 +31,15 @@ type HostStatus struct {
 	LastSuccess      time.Time
 	LastError        string
 	LastCollector    string
+	LastPollAttempts int           // attempts made in the most recent poll (1 = no retry)
+	LastRetryTime    time.Duration // time spent backing off during the most recent poll
 }
 
 func New(interval time.Duration, db *storage.DB, collectors *collector.Chain, logger *slog.Logger) *Scheduler {
+	return NewWithRetry(interval, db, collectors, logger, config.RetryConfig{}.WithDefaults())
+}
+
+func NewWithRetry(interval time.Duration, db *storage.DB, collectors *collector.Chain, logger *slog.Logger, retry config.RetryConfig) *Scheduler {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -39,6 +48,7 @@ func New(interval time.Duration, db *storage.DB, collectors *collector.Chain, lo
 		db:           db,
 		collectors:   collectors,
 		logger:       logger,
+		retry:        retry.WithDefaults(),
 		hostStatuses: make(map[int64]*HostStatus),
 		stopCh:       make(chan struct{}),
 	}
@@ -99,14 +109,12 @@ func (s *Scheduler) pollAll(ctx context.Context) {
 		return
 	}
 
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-
 	var wg sync.WaitGroup
 	for _, h := range hosts {
 		wg.Add(1)
 		go func(host storage.Host) {
 			defer wg.Done()
-			jitter := time.Duration(rng.Int63n(int64(s.interval / 10)))
+			jitter := time.Duration(rand.Int63n(int64(s.interval / 10)))
 			select {
 			case <-ctx.Done():
 				return
@@ -123,9 +131,76 @@ func (s *Scheduler) pollAll(ctx context.Context) {
 	wg.Wait()
 }
 
+// nonRetryableMarkers are error substrings that indicate a permanent failure
+// where retrying is pointless (auth, host key). Matched case-insensitively.
+var nonRetryableMarkers = []string{
+	"permission denied",
+	"authentication failed",
+	"publickey",
+	"password",
+	"host key verification failed",
+}
+
+// retryable reports whether an error from the collector chain is worth
+// retrying (transient network/timeout/parse issues vs permanent auth/key failures).
+func retryable(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	for _, marker := range nonRetryableMarkers {
+		if strings.Contains(msg, marker) {
+			return false
+		}
+	}
+	return true
+}
+
+// backoffDelay computes delay = min(base * 2^attempt + jitter, max).
+// Uses the package-level rand source (thread-safe: pollAll fans out per-host).
+func backoffDelay(cfg config.RetryConfig, attempt int) time.Duration {
+	d := cfg.BaseDelay << attempt // base * 2^attempt; overflow-safe enough for sane configs
+	if d <= 0 || d > cfg.MaxDelay {
+		d = cfg.MaxDelay
+	}
+	delay := d
+	if cfg.JitterFraction > 0 {
+		jitter := time.Duration(rand.Float64() * float64(delay) * cfg.JitterFraction)
+		delay += jitter
+		if delay > cfg.MaxDelay {
+			delay = cfg.MaxDelay
+		}
+	}
+	return delay
+}
+
+type retryPlan struct {
+	maxAttempts int
+	base        time.Duration
+	max         time.Duration
+}
+
+// effectivePlan merges global retry config with per-host overrides.
+func effectivePlan(global config.RetryConfig, host storage.Host) retryPlan {
+	p := retryPlan{maxAttempts: global.MaxRetries, base: global.BaseDelay, max: global.MaxDelay}
+	if host.RetryMaxRetries != nil && *host.RetryMaxRetries > 0 {
+		p.maxAttempts = int(*host.RetryMaxRetries)
+	}
+	if host.RetryBaseMs != nil && *host.RetryBaseMs > 0 {
+		p.base = time.Duration(*host.RetryBaseMs) * time.Millisecond
+	}
+	if host.RetryMaxMs != nil && *host.RetryMaxMs > 0 {
+		p.max = time.Duration(*host.RetryMaxMs) * time.Millisecond
+	}
+	if p.base > p.max {
+		p.max = p.base
+	}
+	return p
+}
+
 func (s *Scheduler) pollHost(ctx context.Context, host storage.Host) {
 	start := time.Now()
-	samples, err := s.collectors.Collect(ctx, collector.Host{
+	collectorHost := collector.Host{
 		ID:                  host.ID,
 		Name:                host.Name,
 		Connection:          host.Connection,
@@ -137,7 +212,39 @@ func (s *Scheduler) pollHost(ctx context.Context, host storage.Host) {
 		Timeout:             host.Timeout,
 		ProxyJump:           host.ProxyJump,
 		CollectorPreference: host.CollectorPreference,
-	})
+	}
+
+	plan := effectivePlan(s.retry, host)
+	var samples []collector.Sample
+	var err error
+	attempts := 0
+	retryTime := time.Duration(0)
+
+	for attempt := 0; attempt < plan.maxAttempts; attempt++ {
+		attempts = attempt + 1
+		samples, err = s.collectors.Collect(ctx, collectorHost)
+		if err == nil {
+			break
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		if !retryable(err) || attempt == plan.maxAttempts-1 {
+			break
+		}
+		delay := backoffDelay(config.RetryConfig{
+			BaseDelay:      plan.base,
+			MaxDelay:       plan.max,
+			JitterFraction: s.retry.JitterFraction,
+		}, attempt)
+		retryTime += delay
+		s.logger.Debug("poll failed, retrying", "host", host.Name, "attempt", attempts, "delay", delay, "error", err)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(delay):
+		}
+	}
 	latency := time.Since(start)
 
 	s.mu.Lock()
@@ -146,10 +253,12 @@ func (s *Scheduler) pollHost(ctx context.Context, host storage.Host) {
 		status = &HostStatus{HostID: host.ID}
 		s.hostStatuses[host.ID] = status
 	}
+	status.LastPollAttempts = attempts
+	status.LastRetryTime = retryTime
 	s.mu.Unlock()
 
 	if err != nil {
-		s.logger.Warn("poll failed", "host", host.Name, "error", err, "latency", latency)
+		s.logger.Warn("poll failed", "host", host.Name, "error", err, "latency", latency, "attempts", attempts)
 		s.mu.Lock()
 		status.ConsecutiveFails++
 		status.LastError = err.Error()
@@ -170,7 +279,7 @@ func (s *Scheduler) pollHost(ctx context.Context, host storage.Host) {
 	}
 	s.mu.Unlock()
 
-	s.logger.Debug("poll succeeded", "host", host.Name, "samples", len(samples), "latency", latency, "collector", status.LastCollector)
+	s.logger.Debug("poll succeeded", "host", host.Name, "samples", len(samples), "latency", latency, "attempts", attempts, "collector", status.LastCollector)
 }
 
 func (s *Scheduler) GetHostStatus(hostID int64) *HostStatus {
