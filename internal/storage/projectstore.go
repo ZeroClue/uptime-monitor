@@ -8,20 +8,14 @@ import (
 )
 
 func scanProjectRow(row interface{ Scan(...any) error }, p *Project) error {
-	var hostIDsJSON string
-	var ownerID sql.NullInt64
+	var hostIDsJSON sql.NullString
 	var createdAt, updatedAt int64
-	var isDefault int
-	if err := row.Scan(&p.ID, &p.Name, &p.Type, &p.TagQuery, &hostIDsJSON, &ownerID, &p.IsolationLevel, &isDefault, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(&p.ID, &p.Name, &p.Type, &p.TagQuery, &hostIDsJSON, &p.OwnerID, &p.IsolationLevel, &p.IsDefault, &createdAt, &updatedAt); err != nil {
 		return err
 	}
-	if hostIDsJSON != "" {
-		json.Unmarshal([]byte(hostIDsJSON), &p.HostIDs)
+	if hostIDsJSON.Valid {
+		json.Unmarshal([]byte(hostIDsJSON.String), &p.HostIDs)
 	}
-	if ownerID.Valid {
-		p.OwnerID = &ownerID.Int64
-	}
-	p.IsDefault = isDefault == 1
 	p.CreatedAt = time.Unix(createdAt, 0)
 	p.UpdatedAt = time.Unix(updatedAt, 0)
 	return nil

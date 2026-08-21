@@ -22,10 +22,50 @@
             <a href="/alerts/config" data-nav="alerts-config">Alert Config</a>
             <a href="/monitor" data-nav="monitor">Monitor</a>
         </div>
+        <div class="project-switcher" id="projectSwitcher">
+            <select id="projectSelect" aria-label="Select project" onchange="switchProject(this.value)">
+                <option value="">All Projects</option>
+            </select>
+        </div>
         <button id="theme-toggle" class="theme-toggle" aria-label="Toggle theme" aria-pressed="false">☾</button>
     </nav>
     <main id="main" class="container">
         {{template "content" .}}
     </main>
+    <script>
+        async function loadProjects() {
+            try {
+                const response = await fetch('/api/projects', {
+                    headers: { 'Accept': 'application/json' }
+                });
+                if (!response.ok) throw new Error('HTTP ' + response.status);
+                const projects = await response.json();
+                const select = document.getElementById('projectSelect');
+                select.querySelectorAll('option:not([value=""])').forEach(o => o.remove());
+                const currentProjectId = new URLSearchParams(window.location.search).get('project_id') || '';
+                projects.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p.id;
+                    opt.textContent = p.name;
+                    if (String(p.id) === currentProjectId) opt.selected = true;
+                    select.appendChild(opt);
+                });
+            } catch (err) {
+                console.error('Failed to load projects:', err);
+            }
+        }
+
+        function switchProject(projectId) {
+            const url = new URL(window.location.href);
+            if (projectId) {
+                url.searchParams.set('project_id', projectId);
+            } else {
+                url.searchParams.delete('project_id');
+            }
+            window.location.href = url.toString();
+        }
+
+        loadProjects();
+    </script>
 </body>
 </html>{{end}}

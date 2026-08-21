@@ -58,7 +58,7 @@ func (db *DB) Migrate() error {
 			FOREIGN KEY (host_id) REFERENCES hosts(id)
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_samples_1h_host_metric_time ON samples_1h(host_id, metric, timestamp)`,
-`CREATE TABLE IF NOT EXISTS projects (
+		`CREATE TABLE IF NOT EXISTS projects (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		name TEXT UNIQUE NOT NULL,
 		type TEXT NOT NULL,
@@ -71,7 +71,7 @@ func (db *DB) Migrate() error {
 		updated_at INTEGER NOT NULL,
 		FOREIGN KEY (owner_id) REFERENCES users(id)
 	)`,
-	`CREATE TABLE IF NOT EXISTS project_members (
+		`CREATE TABLE IF NOT EXISTS project_members (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		project_id INTEGER NOT NULL,
 		user_id INTEGER NOT NULL,
@@ -81,7 +81,7 @@ func (db *DB) Migrate() error {
 		FOREIGN KEY (user_id) REFERENCES users(id),
 		UNIQUE(project_id, user_id)
 	)`,
-	`CREATE TABLE IF NOT EXISTS users (
+		`CREATE TABLE IF NOT EXISTS users (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		username TEXT UNIQUE NOT NULL,
 		password_hash TEXT NOT NULL,
@@ -130,14 +130,14 @@ func (db *DB) Migrate() error {
 		created_at INTEGER NOT NULL,
 		updated_at INTEGER NOT NULL
 	)`,
-`CREATE TABLE IF NOT EXISTS alert_config (
+		`CREATE TABLE IF NOT EXISTS alert_config (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		collection_failure_threshold INTEGER NOT NULL DEFAULT 3,
 		webhooks TEXT NOT NULL DEFAULT '[]',
 		created_at INTEGER NOT NULL,
 		updated_at INTEGER NOT NULL
 	)`,
-	`CREATE TABLE IF NOT EXISTS api_tokens (
+		`CREATE TABLE IF NOT EXISTS api_tokens (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		name TEXT NOT NULL,
 		token_hash TEXT NOT NULL,
@@ -149,9 +149,9 @@ func (db *DB) Migrate() error {
 		updated_at INTEGER NOT NULL,
 		FOREIGN KEY (project_id) REFERENCES projects(id)
 	)`,
-	`CREATE INDEX IF NOT EXISTS idx_api_tokens_token_hash ON api_tokens(token_hash)`,
-	`CREATE INDEX IF NOT EXISTS idx_api_tokens_project_id ON api_tokens(project_id)`,
-}
+		`CREATE INDEX IF NOT EXISTS idx_api_tokens_token_hash ON api_tokens(token_hash)`,
+		`CREATE INDEX IF NOT EXISTS idx_api_tokens_project_id ON api_tokens(project_id)`,
+	}
 
 	for _, q := range queries {
 		if _, err := db.Exec(q); err != nil {
@@ -163,6 +163,12 @@ func (db *DB) Migrate() error {
 	// SQLite doesn't support IF NOT EXISTS for ALTER TABLE ADD COLUMN,
 	// so we ignore the "duplicate column" error
 	_, err := db.Exec(`ALTER TABLE hosts ADD COLUMN project_id INTEGER`)
+	if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+		return fmt.Errorf("migration failed: %w", err)
+	}
+
+	// Add owner_id column to projects table if it doesn't exist
+	_, err = db.Exec(`ALTER TABLE projects ADD COLUMN owner_id INTEGER`)
 	if err != nil && !strings.Contains(err.Error(), "duplicate column") {
 		return fmt.Errorf("migration failed: %w", err)
 	}

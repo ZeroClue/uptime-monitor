@@ -104,16 +104,16 @@ type AlertConfig struct {
 }
 
 type Project struct {
-	ID              int64
-	Name            string
-	Type            string // "tag_query" or "explicit"
-	TagQuery        string
-	HostIDs         []int64
-	OwnerID         *int64
-	IsolationLevel  string
-	IsDefault       bool
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	ID             int64     `json:"id"`
+	Name           string    `json:"name"`
+	Type           string    `json:"type"` // "tag_query" or "explicit"
+	TagQuery       string    `json:"tag_query"`
+	HostIDs        []int64   `json:"host_ids"`
+	OwnerID        *int64    `json:"owner_id"`
+	IsolationLevel string    `json:"isolation_level"`
+	IsDefault      bool      `json:"is_default"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 type User struct {
@@ -135,15 +135,15 @@ type ProjectMember struct {
 }
 
 type APIToken struct {
-	ID        int64
-	Name      string
-	TokenHash string
-	ProjectID *int64
-	Scopes    string
-	ExpiresAt sql.NullTime
+	ID         int64
+	Name       string
+	TokenHash  string
+	ProjectID  *int64
+	Scopes     string
+	ExpiresAt  sql.NullTime
 	LastUsedAt sql.NullTime
-	CreatedAt sql.NullTime
-	UpdatedAt sql.NullTime
+	CreatedAt  sql.NullTime
+	UpdatedAt  sql.NullTime
 }
 
 type Sample struct {
