@@ -351,7 +351,7 @@ Failed polls retry with exponential backoff — `delay = min(base_delay * 2^atte
 | `auto` | Accept and record new keys on first connect (`StrictHostKeyChecking=accept-new`) but still fail on key changes |
 | `known` | Use the managed known_hosts file as-is (alias of strict) |
 
-New and changed keys are logged for audit. The file location is configurable via `ssh_known_hosts_file`.
+New and changed keys are logged for audit. The file location is configurable via `ssh_known_hosts_file`. Note: if `/config` is mounted read-only (the compose default), seed the file from the host side; `auto` mode needs a writable path.
 
 ### Host timeouts
 
