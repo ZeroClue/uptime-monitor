@@ -335,6 +335,8 @@ Hosts and alerts can be scoped to projects. The nav bar's project switcher filte
 
 Alert rules and notification channels participate in scoping: rules with a project apply only to hosts in that project; rules without one are global. `/alerts/config` lists and creates within the active project (new rules inherit it; omit `project_id` in the API to create globals).
 
+Manage projects at **Project Config** (`/projects/config`): create, edit (name/type/tag query/default), and delete. The host form has a project dropdown defaulting to the active project; the host list shows a Project column once more than one project exists.
+
 ### Poll retries
 
 Failed polls retry with exponential backoff — `delay = min(base_delay * 2^attempt + jitter, max_delay)`. Defaults: 3 attempts, 2s base, 30s max, 0.2 jitter; configure globally via the `retry:` block in `hosts.yaml` or per host (`retry_max_retries`, `retry_base_delay`, `retry_max_delay`, or the host form). Authentication and host-key failures are never retried. The last poll's attempt count and total backoff time appear in `/api/hosts/status` (`poll_attempts`, `retry_time_ms`).

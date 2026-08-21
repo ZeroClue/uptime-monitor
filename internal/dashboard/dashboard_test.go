@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -285,5 +286,44 @@ func TestAPIAlerts_ProjectScoped(t *testing.T) {
 	handler(rec, req)
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for invalid project_id, got %d", rec.Code)
+	}
+}
+
+func TestProjectsConfigPage_Renders(t *testing.T) {
+	s := newTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/projects/config", nil)
+	rec := httptest.NewRecorder()
+	s.handleProjectsConfig(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte("Projects Config")) {
+		t.Error("page content missing")
+	}
+}
+
+func TestIndex_IncludesProjectColumnWhenMultiple(t *testing.T) {
+	s := newTestServer(t)
+	ctx := context.Background()
+
+	// Single project (Default from bootstrap): column hidden.
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	s.handleIndex(rec, req)
+	body := rec.Body.String()
+	if strings.Contains(body, `data-sort="project"`) {
+		t.Error("project column should be hidden with <=1 project")
+	}
+
+	if _, err := s.db.CreateProject(ctx, &storage.Project{Name: "second", Type: "explicit"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.CreateProject(ctx, &storage.Project{Name: "third", Type: "explicit"}); err != nil {
+		t.Fatal(err)
+	}
+	rec = httptest.NewRecorder()
+	s.handleIndex(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if !strings.Contains(rec.Body.String(), `data-sort="project"`) {
+		t.Error("project column should appear with >1 project")
 	}
 }
