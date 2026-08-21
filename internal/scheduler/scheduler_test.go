@@ -330,3 +330,43 @@ func TestDurationFromMs(t *testing.T) {
 }
 
 func int64Ptr(v int64) *int64 { return &v }
+
+func TestScheduler_HealthTracking(t *testing.T) {
+	db, err := storage.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SeedHosts([]config.Host{{Name: "hc", Connection: "ssh", Endpoint: "10.0.0.1", Port: 22, Timeout: time.Second}}); err != nil {
+		t.Fatal(err)
+	}
+	host, _ := db.GetHosts()
+	h := host[0]
+
+	failThenSucceed := &flakyCollector{failFirst: 3, samples: []collector.Sample{
+		{Metric: "cpu.user_pct", Value: 10, Timestamp: time.Now(), Collector: "mock"},
+	}}
+	sched := NewWithRetry(30*time.Second, db, collector.NewChain(failThenSucceed), nil,
+		config.RetryConfig{MaxRetries: 2, BaseDelay: time.Millisecond, MaxDelay: 2 * time.Millisecond})
+
+	sched.pollHost(context.Background(), h)
+	st := sched.GetHostStatus(h.ID)
+	if st == nil || st.LastFailure.IsZero() {
+		t.Fatal("expected LastFailure recorded when all attempts failed")
+	}
+	if st.ConsecutiveFails != 1 {
+		t.Fatalf("expected 1 fail, got %d", st.ConsecutiveFails)
+	}
+
+	sched.pollHost(context.Background(), h)
+	st = sched.GetHostStatus(h.ID)
+	if st.ConsecutiveFails != 0 {
+		t.Fatalf("expected recovered, got fails=%d err=%s", st.ConsecutiveFails, st.LastError)
+	}
+	if st.LastLatency <= 0 {
+		t.Error("expected positive latency on successful poll")
+	}
+}

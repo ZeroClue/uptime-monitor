@@ -357,7 +357,44 @@ func (s *Server) handleHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.render(w, "host.html", host)
+	status := s.sched.GetHostStatus(host.ID)
+	badge := struct {
+		Class   string
+		Label   string
+		Tooltip string
+	}{"down", "unknown", "No poll data yet"}
+	if status != nil {
+		switch {
+		case status.ConsecutiveFails == 0 && !status.LastSuccess.IsZero():
+			badge.Class, badge.Label = "ok", "reachable"
+		case status.ConsecutiveFails > 0:
+			badge.Class, badge.Label = "critical", "unreachable"
+		}
+		var parts []string
+		parts = append(parts, "reachable: "+badge.Label)
+		if !status.LastSuccess.IsZero() {
+			parts = append(parts, "last poll: "+status.LastSuccess.Format("2006-01-02 15:04:05"))
+		}
+		if status.LastCollector != "" {
+			parts = append(parts, "collector: "+status.LastCollector)
+		}
+		if status.LastLatency > 0 {
+			parts = append(parts, fmt.Sprintf("latency: %dms", status.LastLatency.Milliseconds()))
+		}
+		if status.LastError != "" {
+			parts = append(parts, "error: "+status.LastError)
+		}
+		badge.Tooltip = strings.Join(parts, "\n")
+	}
+	data := struct {
+		*storage.Host
+		Badge struct {
+			Class   string
+			Label   string
+			Tooltip string
+		}
+	}{host, badge}
+	s.render(w, "host.html", data)
 }
 
 func (s *Server) handleCompare(w http.ResponseWriter, r *http.Request) {
@@ -637,6 +674,11 @@ type HostStatusSummary struct {
 	HostID       int64    `json:"host_id"`
 	Name         string   `json:"name"`
 	Status       string   `json:"status"`
+	Reachable    bool     `json:"reachable"`
+	LastPoll     string   `json:"last_poll,omitempty"`
+	Collector    string   `json:"collector,omitempty"`
+	LatencyMs    int64    `json:"latency_ms"`
+	LastError    string   `json:"last_error,omitempty"`
 	CPU          *float64 `json:"cpu_pct"`
 	Mem          *float64 `json:"mem_pct"`
 	Uptime       *float64 `json:"uptime_seconds"`
@@ -669,6 +711,13 @@ func (s *Server) handleAPIHostsStatus(w http.ResponseWriter, r *http.Request) {
 			default:
 				summary.Status = "down"
 			}
+			summary.Reachable = st.ConsecutiveFails == 0 && !st.LastSuccess.IsZero()
+			if !st.LastSuccess.IsZero() {
+				summary.LastPoll = st.LastSuccess.UTC().Format(time.RFC3339)
+			}
+			summary.Collector = st.LastCollector
+			summary.LatencyMs = st.LastLatency.Milliseconds()
+			summary.LastError = st.LastError
 			summary.PollAttempts = st.LastPollAttempts
 			summary.RetryTimeMs = st.LastRetryTime.Milliseconds()
 		} else {
@@ -969,6 +1018,8 @@ func (s *Server) handleAPIMonitor(w http.ResponseWriter, r *http.Request) {
 		LastSuccess      string `json:"last_success"`
 		ConsecutiveFails int    `json:"consecutive_fails"`
 		LastError        string `json:"last_error"`
+		PollAttempts     int    `json:"poll_attempts"`
+		LatencyMs        int64  `json:"latency_ms"`
 	}
 
 	result := make([]hostStatusInfo, 0, len(hosts))
@@ -982,6 +1033,8 @@ func (s *Server) handleAPIMonitor(w http.ResponseWriter, r *http.Request) {
 			}
 			info.ConsecutiveFails = st.ConsecutiveFails
 			info.LastError = st.LastError
+			info.PollAttempts = st.LastPollAttempts
+			info.LatencyMs = st.LastLatency.Milliseconds()
 		}
 		result = append(result, info)
 	}

@@ -353,6 +353,10 @@ Failed polls retry with exponential backoff — `delay = min(base_delay * 2^atte
 
 New and changed keys are logged for audit. The file location is configurable via `ssh_known_hosts_file`. Note: if `/config` is mounted read-only (the compose default), seed the file from the host side; `auto` mode needs a writable path.
 
+### Host health
+
+`/api/hosts/status` reports per-host connectivity: `reachable`, `last_poll`, `collector`, `latency_ms` (wall-clock including any retry backoff), `last_error`, plus retry stats (`poll_attempts`, `retry_time_ms`). The host list status badge tooltips and the host detail header badge show the same detail; the self-monitor page adds attempts and latency columns to its collector-health table.
+
 ### Host timeouts
 
 Three per-host budgets (all optional, set in hosts.yaml or the host form):

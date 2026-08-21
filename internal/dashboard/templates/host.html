@@ -1,7 +1,7 @@
 {{define "title"}}{{.Name}}{{end}}
 {{define "content"}}
 <div class="header">
-    <h1>{{.Name}}</h1>
+    <h1>{{.Name}} <span class="status {{.Badge.Class}}" title="{{.Badge.Tooltip}}">{{.Badge.Label}}</span></h1>
     <span id="uptimeLabel" class="uptime-label">Uptime: —</span>
 </div>
 <div class="meta">{{.Connection}}://{{.Endpoint}}:{{.Port}} · User: {{.User}} · Tags: {{range .Tags}}<span class="tag">{{.}}</span>{{end}}</div>
