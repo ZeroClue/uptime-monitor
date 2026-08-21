@@ -32,6 +32,8 @@ type Server struct {
 	templates    map[string]*template.Template
 	static       http.Handler
 	cookieSecure bool
+	tokenLimiter *tokenRateLimiter
+	lastUsed     *lastUsedRecorder
 }
 
 func NewServer(password string, db *storage.DB, sched *scheduler.Scheduler, logger *slog.Logger, cookieSecure bool) *Server {
@@ -42,6 +44,8 @@ func NewServer(password string, db *storage.DB, sched *scheduler.Scheduler, logg
 		logger:       logger,
 		sessions:     make(map[string]time.Time),
 		cookieSecure: cookieSecure,
+		tokenLimiter: newTokenRateLimiter(60, time.Minute),
+		lastUsed:     newLastUsedRecorder(time.Minute),
 	}
 	s.loadTemplates()
 	staticSub, err := fs.Sub(embeddedFiles, "static")
@@ -187,11 +191,14 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		cookie, err := r.Cookie("session")
-		if err != nil || !s.isValidSession(cookie.Value) {
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
+		if err == nil && s.isValidSession(cookie.Value) {
+			next(w, r)
 			return
 		}
-		next(w, r)
+		if s.enforceTokenAuth(next, w, r) {
+			return
+		}
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
 	}
 }
 
@@ -241,6 +248,9 @@ func (s *Server) projectMiddleware(next http.HandlerFunc) http.HandlerFunc {
 				return
 			}
 			projectID = &id
+		} else if existing := projectIDFromContext(r.Context()); existing != nil {
+			// Preserve a scope injected upstream (e.g. API token project).
+			projectID = existing
 		}
 		ctx := context.WithValue(r.Context(), projectIDKey, projectID)
 		next(w, r.WithContext(ctx))
