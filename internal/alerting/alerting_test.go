@@ -111,11 +111,23 @@ func TestDelivery_ProjectScopedChannels(t *testing.T) {
 	defer srvG.Close()
 
 	ctx := context.Background()
-	projA, _ := db.CreateProject(ctx, &storage.Project{Name: "delivery-a", Type: "explicit"})
-	projB, _ := db.CreateProject(ctx, &storage.Project{Name: "delivery-b", Type: "explicit"})
+	projA, err := db.CreateProject(ctx, &storage.Project{Name: "delivery-a", Type: "explicit"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	projB, err := db.CreateProject(ctx, &storage.Project{Name: "delivery-b", Type: "explicit"})
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	hostA, _ := db.CreateHost(ctx, &storage.Host{Name: "host-a", Connection: "ssh", Endpoint: "a", Port: 22})
-	hostB, _ := db.CreateHost(ctx, &storage.Host{Name: "host-b", Connection: "ssh", Endpoint: "b", Port: 22})
+	hostA, err := db.CreateHost(ctx, &storage.Host{Name: "host-a", Connection: "ssh", Endpoint: "a", Port: 22})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostB, err := db.CreateHost(ctx, &storage.Host{Name: "host-b", Connection: "ssh", Endpoint: "b", Port: 22})
+	if err != nil {
+		t.Fatal(err)
+	}
 	db.ExecContext(ctx, `UPDATE hosts SET project_id = ? WHERE id = ?`, projA, hostA)
 	db.ExecContext(ctx, `UPDATE hosts SET project_id = ? WHERE id = ?`, projB, hostB)
 

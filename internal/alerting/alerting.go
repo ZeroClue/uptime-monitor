@@ -312,7 +312,7 @@ func (e *Engine) fireAlert(ctx context.Context, hostProject *int64, alert storag
 	// Send notifications via enabled channels, filtered by the alerting
 	// host's project (global channels receive everything).
 	e.mu.RLock()
-	chans := e.channels
+	chans := e.channels // refreshed periodically; a channel re-scoping takes up to one refresh cycle to apply
 	e.mu.RUnlock()
 	e.sendNotifications(alert, channelsForProject(chans, hostProject))
 }
