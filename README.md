@@ -341,6 +341,18 @@ Manage projects at **Project Config** (`/projects/config`): create, edit (name/t
 
 Failed polls retry with exponential backoff — `delay = min(base_delay * 2^attempt + jitter, max_delay)`. Defaults: 3 attempts, 2s base, 30s max, 0.2 jitter; configure globally via the `retry:` block in `hosts.yaml` or per host (`retry_max_retries`, `retry_base_delay`, `retry_max_delay`, or the host form). Authentication and host-key failures are never retried. The last poll's attempt count and total backoff time appear in `/api/hosts/status` (`poll_attempts`, `retry_time_ms`).
 
+### SSH host keys
+
+`ssh_host_key_policy` controls host-key verification (set globally in hosts.yaml or per host):
+
+| Policy | Behavior |
+|--------|----------|
+| `strict` *(default)* | Fail when the key is missing **or** changed. Seed `/config/known_hosts` first: `ssh-keyscan -H host >> config/known_hosts` |
+| `auto` | Accept and record new keys on first connect (`StrictHostKeyChecking=accept-new`) but still fail on key changes |
+| `known` | Use the managed known_hosts file as-is (alias of strict) |
+
+New and changed keys are logged for audit. The file location is configurable via `ssh_known_hosts_file`.
+
 ### Host timeouts
 
 Three per-host budgets (all optional, set in hosts.yaml or the host form):

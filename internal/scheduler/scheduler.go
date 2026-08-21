@@ -174,6 +174,13 @@ func backoffDelay(cfg config.RetryConfig, attempt int) time.Duration {
 	return delay
 }
 
+func derefString(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
 // durationFromMs converts a nullable millisecond column to a Duration (0 when nil).
 func durationFromMs(p *int64) time.Duration {
 	if p == nil || *p <= 0 {
@@ -220,6 +227,7 @@ func (s *Scheduler) pollHost(ctx context.Context, host storage.Host) {
 		Timeout:             host.Timeout,
 		SSHTimeout:          durationFromMs(host.SshTimeoutMs),
 		CollectorTimeout:    durationFromMs(host.CollectorTimeoutMs),
+		SSHHostKeyPolicy:    derefString(host.SSHHostKeyPolicy),
 		ProxyJump:           host.ProxyJump,
 		CollectorPreference: host.CollectorPreference,
 	}

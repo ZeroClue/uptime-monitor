@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -13,6 +14,8 @@ type Config struct {
 	DashboardPassword string        `yaml:"-"`
 	Hosts             []Host        `yaml:"hosts"`
 	Retry             RetryConfig   `yaml:"retry"`
+	SSHHostKeyPolicy  string        `yaml:"ssh_host_key_policy"`
+	SSHKnownHostsFile string        `yaml:"ssh_known_hosts_file"`
 }
 
 // RetryConfig controls exponential-backoff retries for failed polls.
@@ -57,6 +60,7 @@ type Host struct {
 	RetryMaxDelay       *time.Duration `yaml:"retry_max_delay"`
 	SSHTimeout          *time.Duration `yaml:"ssh_timeout"`       // connection phase; default 10s
 	CollectorTimeout    *time.Duration `yaml:"collector_timeout"` // whole-collect budget; default 30s
+	SSHHostKeyPolicy    *string        `yaml:"ssh_host_key_policy"` // auto | strict | known; unset = global
 }
 
 func Load(configDir string) (*Config, error) {
@@ -75,6 +79,17 @@ func Load(configDir string) (*Config, error) {
 		cfg.PollInterval = 30 * time.Second
 	}
 	cfg.Retry = cfg.Retry.WithDefaults()
+	if cfg.SSHHostKeyPolicy == "" {
+		cfg.SSHHostKeyPolicy = "strict"
+	}
+	switch cfg.SSHHostKeyPolicy {
+	case "auto", "strict", "known":
+	default:
+		return nil, fmt.Errorf("invalid ssh_host_key_policy %q (want auto, strict, or known)", cfg.SSHHostKeyPolicy)
+	}
+	if cfg.SSHKnownHostsFile == "" {
+		cfg.SSHKnownHostsFile = "/config/known_hosts"
+	}
 
 	for i := range cfg.Hosts {
 		if cfg.Hosts[i].Port == 0 {

@@ -71,3 +71,29 @@ func TestSSHTargetFromHost_TimeoutMapping(t *testing.T) {
 		t.Errorf("per-host connect timeout = %v, want 3s", got)
 	}
 }
+
+func TestSSHTargetFromHost_HostKeyPolicy(t *testing.T) {
+	cases := []struct {
+		policy string
+		want   string // expected StrictHostKeyChecking after client defaulting; "" = client decides
+	}{
+		{"", ""},
+		{"auto", "accept-new"},
+		{"strict", "yes"},
+		{"known", "yes"},
+	}
+	for _, tc := range cases {
+		host := Host{Endpoint: "h", Port: 22, SSHHostKeyPolicy: tc.policy}
+		target := SSHTargetFromHost(host)
+		got := target.StrictHostKeyChecking
+		if tc.want == "" {
+			if got != "" {
+				t.Errorf("policy %q: expected empty (client default), got %q", tc.policy, got)
+			}
+			continue
+		}
+		if got != tc.want {
+			t.Errorf("policy %q: got checking=%q, want %q", tc.policy, got, tc.want)
+		}
+	}
+}

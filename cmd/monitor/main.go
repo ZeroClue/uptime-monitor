@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/ZeroClue/uptime-monitor/internal/alerting"
 	"github.com/ZeroClue/uptime-monitor/internal/collector"
@@ -74,7 +75,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	sshClient := ssh.NewSSHClient(logger, nil)
+	sshClient := ssh.NewSSHClient(logger, &ssh.SSHTargetDefaults{
+		StrictHostKeyChecking: "yes", // per-host policy overrides via accept-new/yes
+		UserKnownHostsFile:    cfg.SSHKnownHostsFile,
+		ConnectTimeout:        10 * time.Second,
+		DefaultPort:           22,
+		DefaultTimeout:        30 * time.Second,
+	})
 
 	collectorChain := collector.NewChain(
 		collector.NewLocalProcfsCollector(collector.WithLocalLogger(logger)),

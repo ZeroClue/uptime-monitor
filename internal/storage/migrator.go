@@ -182,6 +182,7 @@ func (db *DB) Migrate() error {
 		`ALTER TABLE hosts ADD COLUMN collector_timeout_ms INTEGER`,
 		`ALTER TABLE alert_rules ADD COLUMN project_id INTEGER`,
 		`ALTER TABLE notification_channels ADD COLUMN project_id INTEGER`,
+		`ALTER TABLE hosts ADD COLUMN ssh_host_key_policy TEXT`,
 	} {
 		if _, err := db.Exec(col); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return fmt.Errorf("migration failed: %w", err)
