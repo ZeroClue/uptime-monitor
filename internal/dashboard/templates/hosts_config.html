@@ -1,0 +1,288 @@
+{{define "title"}}Host Configuration{{end}}
+{{define "content"}}
+<div class="header">
+    <h1>Host Configuration</h1>
+</div>
+<div class="controls">
+    <button class="btn-primary" onclick="openHostModal()">+ Add Host</button>
+</div>
+
+<table class="data-table" id="hostsTable">
+    <thead>
+        <tr>
+            <th data-sort="name" tabindex="0" onclick="sortBy('name')" onkeydown="if(event.key==='Enter')sortBy('name')">Host <span class="sort-arrow"></span></th>
+            <th data-sort="connection" tabindex="0" onclick="sortBy('connection')" onkeydown="if(event.key==='Enter')sortBy('connection')">Connection <span class="sort-arrow"></span></th>
+            <th data-sort="endpoint" tabindex="0" onclick="sortBy('endpoint')" onkeydown="if(event.key==='Enter')sortBy('endpoint')">Endpoint <span class="sort-arrow"></span></th>
+            <th data-sort="port" tabindex="0" onclick="sortBy('port')" onkeydown="if(event.key==='Enter')sortBy('port')">Port <span class="sort-arrow"></span></th>
+            <th data-sort="user" tabindex="0" onclick="sortBy('user')" onkeydown="if(event.key==='Enter')sortBy('user')">User <span class="sort-arrow"></span></th>
+            <th>Key Path</th>
+            <th data-sort="sudo" tabindex="0" onclick="sortBy('sudo')" onkeydown="if(event.key==='Enter')sortBy('sudo')">Sudo</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody id="hostsBody"></tbody>
+</table>
+
+<!-- Host Modal -->
+<div class="modal" id="hostModal" hidden>
+    <div class="modal-content">
+        <h3 id="hostModalTitle">Add Host</h3>
+        <form id="hostForm">
+            <input type="hidden" name="id" id="hostId">
+            <div class="form-group">
+                <label for="hostName">Name</label>
+                <input type="text" name="name" id="hostName" required placeholder="e.g. web-01">
+            </div>
+            <div class="form-group">
+                <label for="hostConnection">Connection Type</label>
+                <select name="connection" id="hostConnection" required onchange="toggleConnectionFields()">
+                    <option value="ssh">SSH</option>
+                    <option value="tailscale">Tailscale</option>
+                    <option value="local">Local</option>
+                    <option value="snmp">SNMP</option>
+                </select>
+            </div>
+            <div class="form-row">
+                <div class="form-group" id="endpointGroup">
+                    <label for="hostEndpoint">Endpoint</label>
+                    <input type="text" name="endpoint" id="hostEndpoint" required placeholder="e.g. 10.0.0.5">
+                </div>
+                <div class="form-group">
+                    <label for="hostPort">Port</label>
+                    <input type="number" name="port" id="hostPort" value="22" min="1" max="65535" required>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="hostUser">User</label>
+                    <input type="text" name="user" id="hostUser" value="monitor" required>
+                </div>
+                <div class="form-group">
+                    <label for="hostKeyPath">Key Path</label>
+                    <input type="text" name="key_path" id="hostKeyPath" placeholder="/keys/host-key">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="sudo" id="hostSudo"> Sudo required
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label for="hostTimeout">Timeout (seconds)</label>
+                    <input type="number" name="timeout" id="hostTimeout" value="10" min="1" max="300" required>
+                </div>
+            </div>
+            <div class="form-group" id="proxyJumpGroup">
+                <label for="hostProxyJump">Proxy Jump</label>
+                <input type="text" name="proxy_jump" id="hostProxyJump" placeholder="user@jump-host:22">
+            </div>
+            <div class="form-group">
+                <label for="hostTags">Tags (comma-separated)</label>
+                <input type="text" name="tags" id="hostTags" placeholder="web,prod,us-east">
+            </div>
+            <div class="form-group">
+                <label for="hostCollectorPreference">Collector Preference</label>
+                <select name="collector_preference" id="hostCollectorPreference">
+                    <option value="">Auto (fallback chain)</option>
+                    <option value="psutil">psutil</option>
+                    <option value="procfs">procfs</option>
+                    <option value="tailscale">tailscale</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" name="enabled" id="hostEnabled" checked> Enabled
+                </label>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" onclick="closeHostModal()">Cancel</button>
+                <button type="submit" class="btn-primary">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    let hosts = [];
+
+    // API helpers
+    async function apiGet(path) {
+        const res = await fetch(path, { headers: { 'Accept': 'application/json' } });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+    }
+    async function apiPost(path, body) {
+        const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+    }
+    async function apiPut(path, body) {
+        const res = await fetch(path, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+    }
+    async function apiDelete(path) {
+        const res = await fetch(path, { method: 'DELETE' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+    }
+
+    function openHostModal(host = null) {
+        const modal = document.getElementById('hostModal');
+        const form = document.getElementById('hostForm');
+        const title = document.getElementById('hostModalTitle');
+        form.reset();
+        document.getElementById('hostId').value = '';
+        if (host) {
+            document.getElementById('hostModalTitle').textContent = 'Edit Host';
+            document.getElementById('hostId').value = host.id;
+            document.getElementById('hostName').value = host.name;
+            document.getElementById('hostConnection').value = host.connection;
+            document.getElementById('hostEndpoint').value = host.endpoint;
+            document.getElementById('hostPort').value = host.port;
+            document.getElementById('hostUser').value = host.user;
+            document.getElementById('hostKeyPath').value = host.key_path;
+            document.getElementById('hostSudo').checked = host.sudo;
+            document.getElementById('hostTimeout').value = host.timeout / 1000000000; // nanoseconds to seconds
+            document.getElementById('hostProxyJump').value = host.proxy_jump || '';
+            document.getElementById('hostTags').value = (host.tags || []).join(', ');
+            document.getElementById('hostCollectorPreference').value = host.collector_preference || '';
+            document.getElementById('hostEnabled').checked = true; // no disabled field in storage yet
+        } else {
+            document.getElementById('hostModalTitle').textContent = 'Add Host';
+        }
+        modal.hidden = false;
+    }
+
+    function closeHostModal() {
+        document.getElementById('hostModal').hidden = true;
+    }
+
+    async function loadHosts() {
+        hosts = await apiGet('/api/hosts');
+        renderHosts();
+    }
+
+    function renderHosts() {
+        const tbody = document.getElementById('hostsBody');
+        tbody.innerHTML = hosts.map(h => `
+            <tr>
+                <td>${h.name}</td>
+                <td>${h.connection}</td>
+                <td>${h.endpoint}</td>
+                <td>${h.port}</td>
+                <td>${h.user}</td>
+                <td class="mono" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${h.key_path || ''}</td>
+                <td>${h.sudo ? '✓' : '✗'}</td>
+                <td>
+                    <button class="btn-sm" onclick="editHost(${h.id})">Edit</button>
+                    <button class="btn-sm btn-danger" onclick="deleteHost(${h.id})">Delete</button>
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    function editHost(id) {
+        const host = hosts.find(h => h.id === id);
+        if (host) openHostModal(host);
+    }
+
+    async function deleteHost(id) {
+        if (!confirm('Delete this host?')) return;
+        try {
+            await apiDelete('/api/hosts/' + id);
+            loadHosts();
+        } catch (err) {
+            alert('Error: ' + err.message);
+        }
+    }
+
+    async function submitHost(e) {
+        e.preventDefault();
+        const form = e.target;
+        const data = {
+            name: form.name.value,
+            connection: form.connection.value,
+            endpoint: form.endpoint.value,
+            port: parseInt(form.port.value),
+            user: form.user.value,
+            key_path: form.key_path.value,
+            sudo: form.sudo.checked,
+            timeout: parseInt(form.timeout.value) * 1000000000, // seconds to nanoseconds
+            proxy_jump: form.proxy_jump.value,
+            tags: form.tags.value.split(',').map(t => t.trim()).filter(Boolean),
+            collector_preference: form.collector_preference.value,
+        };
+        const id = form.id.value;
+        try {
+            if (id) {
+                await apiPut('/api/hosts/' + id, data);
+            } else {
+                await apiPost('/api/hosts', data);
+            }
+            closeHostModal();
+            loadHosts();
+        } catch (err) {
+            alert('Error: ' + err.message);
+        }
+    }
+
+    function editHost(id) {
+        const host = hosts.find(h => h.id === id);
+        if (host) openHostModal(host);
+    }
+
+    async function deleteHost(id) {
+        if (!confirm('Delete this host?')) return;
+        try {
+            await apiDelete('/api/hosts/' + id);
+            loadHosts();
+        } catch (err) {
+            alert('Error: ' + err.message);
+        }
+    }
+
+    // API helpers
+    async function apiGet(path) {
+        const res = await fetch(path, { headers: { 'Accept': 'application/json' } });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+    }
+    async function apiPost(path, body) {
+        const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+    }
+    async function apiPut(path, body) {
+        const res = await fetch(path, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+    }
+    async function apiDelete(path) {
+        const res = await fetch(path, { method: 'DELETE' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+    }
+
+    document.addEventListener('DOMContentLoaded', async () => {
+        await loadHosts();
+        document.getElementById('hostForm').addEventListener('submit', submitHost);
+    });
+</script>
+<style>
+    .toolbar { margin-bottom: 1rem; }
+    .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.8rem; }
+    .btn-danger { background: var(--crit); color: white; }
+    .form-row { display: flex; gap: 1rem; }
+    .form-row .form-group { flex: 1; }
+    .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 100; }
+    .modal[hidden] { display: none; }
+    .modal-content { background: var(--bg); padding: 1.5rem; border-radius: 8px; min-width: 600px; max-width: 90vw; max-height: 90vh; overflow: auto; }
+    .form-group { margin-bottom: 1rem; }
+    .form-group label { display: block; margin-bottom: 0.25rem; font-weight: 500; }
+    .form-group input, .form-group select { width: 100%; padding: 0.5rem; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); }
+    .checkbox-label { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.5rem; }
+    .seg-btn[data-section], .seg-btn[data-status] { flex: 1; }
+    .form-group input[type="number"] { width: 100%; }
+</style>
+{{end}}

@@ -55,7 +55,7 @@ func NewServer(password string, db *storage.DB, sched *scheduler.Scheduler, logg
 }
 
 func (s *Server) loadTemplates() {
-	pages := []string{"index", "host", "compare", "projects", "alerts", "monitor", "alerts_history", "alerts_config"}
+	pages := []string{"index", "host", "compare", "projects", "alerts", "monitor", "alerts_history", "alerts_config", "hosts_config"}
 	tmpls := make(map[string]*template.Template, len(pages)+1)
 	for _, p := range pages {
 		t, err := template.ParseFS(embeddedFiles, "templates/base.html", "templates/"+p+".html")
@@ -86,9 +86,11 @@ func (s *Server) Run(ctx context.Context) {
 	mux.HandleFunc("/alerts", s.authMiddleware(s.handleAlerts))
 	mux.HandleFunc("/alerts/history", s.authMiddleware(s.handleAlertsHistory))
 	mux.HandleFunc("/alerts/config", s.authMiddleware(s.handleAlertsConfig))
+	mux.HandleFunc("/hosts/config", s.authMiddleware(s.handleHostsConfig))
 	mux.HandleFunc("/monitor", s.authMiddleware(s.handleMonitor))
 	mux.HandleFunc("/api/", s.authMiddleware(s.handleAPI))
 	mux.HandleFunc("/api/hosts", s.authMiddleware(s.handleAPIHosts))
+	mux.HandleFunc("/api/hosts/", s.authMiddleware(s.handleAPIHosts))
 	mux.HandleFunc("/api/hosts/status", s.authMiddleware(s.handleAPIHostsStatus))
 	mux.HandleFunc("/api/host/", s.authMiddleware(s.handleAPIHost))
 	mux.HandleFunc("/api/compare", s.authMiddleware(s.handleAPICompare))
@@ -336,6 +338,16 @@ func (s *Server) handleAlertsConfig(w http.ResponseWriter, r *http.Request) {
 	s.render(w, "alerts_config.html", struct{ Hosts []storage.Host }{Hosts: hosts})
 }
 
+func (s *Server) handleHostsConfig(w http.ResponseWriter, r *http.Request) {
+	hosts, err := s.db.GetHosts()
+	if err != nil {
+		s.logger.Error("failed to get hosts for config", "error", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+	s.render(w, "hosts_config.html", struct{ Hosts []storage.Host }{Hosts: hosts})
+}
+
 func (s *Server) handleMonitor(w http.ResponseWriter, r *http.Request) {
 	statuses := s.sched.GetAllHostStatuses()
 	hosts, _ := s.db.GetHosts()
@@ -368,6 +380,21 @@ func (s *Server) handleAPIProjects(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAPIHosts(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.handleAPIHostsGet(w, r)
+	case http.MethodPost:
+		s.handleAPIHostsPost(w, r)
+	case http.MethodPut:
+		s.handleAPIHostsPut(w, r)
+	case http.MethodDelete:
+		s.handleAPIHostsDelete(w, r)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleAPIHostsGet(w http.ResponseWriter, r *http.Request) {
 	hosts, err := s.db.GetHosts()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -386,6 +413,55 @@ func (s *Server) handleAPIHosts(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)
+}
+
+func (s *Server) handleAPIHostsPost(w http.ResponseWriter, r *http.Request) {
+	var host storage.Host
+	if err := json.NewDecoder(r.Body).Decode(&host); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	id, err := s.db.CreateHost(r.Context(), &host)
+	if err != nil {
+		s.logger.Error("failed to create host", "error", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+	host.ID = id
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(host)
+}
+
+func (s *Server) handleAPIHostsPut(w http.ResponseWriter, r *http.Request) {
+	idStr := strings.TrimPrefix(r.URL.Path, "/api/hosts/")
+	id := mustParseInt64(idStr)
+
+	var host storage.Host
+	if err := json.NewDecoder(r.Body).Decode(&host); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	host.ID = id
+	if err := s.db.UpdateHost(r.Context(), &host); err != nil {
+		s.logger.Error("failed to update host", "error", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(host)
+}
+
+func (s *Server) handleAPIHostsDelete(w http.ResponseWriter, r *http.Request) {
+	idStr := strings.TrimPrefix(r.URL.Path, "/api/hosts/")
+	id := mustParseInt64(idStr)
+
+	if err := s.db.DeleteHost(r.Context(), id); err != nil {
+		s.logger.Error("failed to delete host", "error", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 type HostStatusSummary struct {
