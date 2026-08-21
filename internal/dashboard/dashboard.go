@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -206,8 +207,51 @@ func (s *Server) isValidSession(sessionID string) bool {
 	return true
 }
 
+func (s *Server) projectMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Extract project ID from header, query param, or cookie
+		projectIDStr := r.Header.Get("X-Project-ID")
+		if projectIDStr == "" {
+			projectIDStr = r.URL.Query().Get("project_id")
+		}
+		if projectIDStr == "" {
+			if cookie, err := r.Cookie("project_id"); err == nil {
+				projectIDStr = cookie.Value
+			}
+		}
+
+		var projectID int64
+		if projectIDStr != "" {
+			if id, err := strconv.ParseInt(projectIDStr, 10, 64); err == nil {
+				projectID = id
+			}
+		}
+
+		// If no project specified, try to get default project
+		if projectID == 0 {
+			projects, err := s.db.GetProjects(r.Context())
+			if err == nil {
+				for _, p := range projects {
+					if p.IsDefault {
+						projectID = p.ID
+						break
+					}
+				}
+				// Fallback to first project
+				if projectID == 0 && len(projects) > 0 {
+					projectID = projects[0].ID
+				}
+			}
+		}
+
+		ctx := context.WithValue(r.Context(), "project_id", projectID)
+		next(w, r.WithContext(ctx))
+	}
+}
+
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	hosts, err := s.db.GetHosts()
+	projectID := r.Context().Value("project_id")
+	hosts, err := s.db.GetHostsByProject(r.Context(), projectID)
 	if err != nil {
 		s.logger.Error("failed to get hosts", "error", err)
 		http.Error(w, "Internal error", http.StatusInternalServerError)
@@ -463,7 +507,14 @@ func (s *Server) handleAPIHosts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAPIHostsGet(w http.ResponseWriter, r *http.Request) {
-	hosts, err := s.db.GetHosts()
+	projectID := r.URL.Query().Get("project_id")
+	var projectIDPtr *int64
+	if projectID != "" {
+		if id, err := strconv.ParseInt(projectID, 10, 64); err == nil {
+			projectIDPtr = &id
+		}
+	}
+	hosts, err := s.db.GetHostsByProject(r.Context(), projectIDPtr)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
