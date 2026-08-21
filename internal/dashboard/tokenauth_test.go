@@ -81,11 +81,19 @@ func TestAuthMiddleware_BearerToken(t *testing.T) {
 		}
 	})
 
-	t.Run("write token allowed mutation", func(t *testing.T) {
-		plain, _ := createTestToken(t, s, "writer", "write")
+	t.Run("admin token allowed project mutation", func(t *testing.T) {
+		plain, _ := createTestToken(t, s, "proj-admin", "admin")
 		rec := tokenRequest(s, "/api/projects", http.MethodPost, plain)
 		if rec.Code != http.StatusOK {
-			t.Fatalf("expected 200, got %d", rec.Code)
+			t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("write token blocked from project mutation", func(t *testing.T) {
+		plain, _ := createTestToken(t, s, "writer3", "write")
+		rec := tokenRequest(s, "/api/projects", http.MethodPost, plain)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("expected 403 for project mutation with write scope, got %d", rec.Code)
 		}
 	})
 
@@ -361,7 +369,7 @@ func TestRequiredScope(t *testing.T) {
 		{http.MethodGet, "/api/hosts", scopeRead},
 		{http.MethodGet, "/api/alerts", scopeRead},
 		{http.MethodDelete, "/api/hosts/5", scopeWrite},
-		{http.MethodPost, "/api/projects", scopeWrite},
+		{http.MethodPost, "/api/projects", scopeAdmin},
 		{http.MethodGet, "/api/alert-rules", scopeAdmin},
 		{http.MethodPost, "/api/api-tokens", scopeAdmin},
 		{http.MethodPut, "/api/notification-channels/3", scopeAdmin},
@@ -514,5 +522,14 @@ func TestAPIAlertRuleByID_ScopeIsolation(t *testing.T) {
 	byID(rec, req)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("own-scope delete should succeed, got %d", rec.Code)
+	}
+}
+
+func TestRequiredScope_Projects(t *testing.T) {
+	if got := requiredScope(httptest.NewRequest(http.MethodGet, "/api/projects", nil)); got != scopeRead {
+		t.Errorf("projects GET should be read, got %d", got)
+	}
+	if got := requiredScope(httptest.NewRequest(http.MethodPost, "/api/projects", nil)); got != scopeAdmin {
+		t.Errorf("projects POST should be admin, got %d", got)
 	}
 }

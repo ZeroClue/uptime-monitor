@@ -57,6 +57,29 @@
 <script>
     let projects = [];
 
+    async function apiGet(path) {
+        const r = await fetch(path, { headers: { 'Accept': 'application/json' } });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+    }
+
+    async function apiPost(path, data) {
+        const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+        if (!r.ok) throw new Error(await r.text() || ('HTTP ' + r.status));
+        return r.json();
+    }
+
+    async function apiPut(path, data) {
+        const r = await fetch(path, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+        if (!r.ok) throw new Error(await r.text() || ('HTTP ' + r.status));
+        return r.json();
+    }
+
+    async function apiDelete(path) {
+        const r = await fetch(path, { method: 'DELETE' });
+        if (!r.ok && r.status !== 204) throw new Error('HTTP ' + r.status);
+    }
+
     function renderProjects() {
         const tbody = document.getElementById('projectsBody');
         tbody.innerHTML = projects.map(p => `
@@ -67,7 +90,7 @@
                 <td>${p.is_default ? '<span class="status ok">YES</span>' : '<span class="status down">NO</span>'}</td>
                 <td>
                     <button class="btn-sm" onclick="editProject(${p.id})">Edit</button>
-                    <button class="btn-sm btn-danger" onclick="deleteProject(${p.id}, '${p.name}')">Delete</button>
+                    <button class="btn-sm btn-danger" onclick="deleteProject(${p.id})">Delete</button>
                 </td>
             </tr>
         `).join('');
@@ -132,7 +155,9 @@
         if (project) openProjectModal(project);
     }
 
-    async function deleteProject(id, name) {
+    async function deleteProject(id) {
+        const project = projects.find(p => p.id === id);
+        const name = project ? project.name : ('#' + id);
         if (!confirm('Delete project "' + name + '"? Hosts assigned to it become unassigned.')) return;
         try {
             await apiDelete('/api/projects/' + id);

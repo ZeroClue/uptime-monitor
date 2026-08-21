@@ -32,6 +32,7 @@ var configPrefixes = []string{
 	"/api/alert-rules",
 	"/api/notification-channels",
 	"/api/api-tokens",
+	"/api/projects",
 }
 
 // APITokenInfo is the authenticated token identity attached to request context.
@@ -51,10 +52,16 @@ func APITokenFromContext(ctx context.Context) *APITokenInfo {
 	return nil
 }
 
-// requiredScope maps method+path to the minimum scope level.
+// requiredScope maps method+path to the minimum scope level. Config
+// resources require admin for any method, except /api/projects where reads
+// stay read-scope (the host form dropdown uses them) and only mutations
+// are admin.
 func requiredScope(r *http.Request) int {
 	for _, prefix := range configPrefixes {
 		if strings.HasPrefix(r.URL.Path, prefix) {
+			if prefix == "/api/projects" && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+				return scopeRead
+			}
 			return scopeAdmin
 		}
 	}
