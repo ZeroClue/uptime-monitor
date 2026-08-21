@@ -29,6 +29,7 @@ type AlertStore interface {
 	SilenceAlert(ctx context.Context, alertID int64, duration time.Duration) error
 	GetAlerts(ctx context.Context, hostID int64) ([]Alert, error)
 	GetAllAlerts(ctx context.Context) ([]AlertWithHost, error)
+	GetAlertsByProject(ctx context.Context, projectID *int64) ([]AlertWithHost, error)
 }
 
 // ProjectStore defines the interface for project persistence.

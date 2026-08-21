@@ -1031,24 +1031,41 @@ func (s *Server) handleAPIAlerts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// GET - list alerts
+	projectID := r.URL.Query().Get("project_id")
 	hostID := r.URL.Query().Get("host_id")
-	if hostID == "" {
-		alerts, err := s.db.GetAllAlerts(r.Context())
+
+	var alerts []storage.AlertWithHost
+	switch {
+	case hostID != "":
+		hostAlerts, err := s.db.GetAlerts(r.Context(), mustParseInt64(hostID))
 		if err != nil {
 			s.logger.Error("failed to get alerts", "error", err)
 			http.Error(w, "Internal error", http.StatusInternalServerError)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(alerts)
-		return
-	}
-
-	alerts, err := s.db.GetAlerts(r.Context(), mustParseInt64(hostID))
-	if err != nil {
-		s.logger.Error("failed to get alerts", "error", err)
-		http.Error(w, "Internal error", http.StatusInternalServerError)
-		return
+		for _, a := range hostAlerts {
+			alerts = append(alerts, storage.AlertWithHost{Alert: a})
+		}
+	case projectID != "":
+		id, err := strconv.ParseInt(projectID, 10, 64)
+		if err != nil {
+			http.Error(w, "Invalid project_id", http.StatusBadRequest)
+			return
+		}
+		alerts, err = s.db.GetAlertsByProject(r.Context(), &id)
+		if err != nil {
+			s.logger.Error("failed to get alerts", "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+	default:
+		var err error
+		alerts, err = s.db.GetAllAlerts(r.Context())
+		if err != nil {
+			s.logger.Error("failed to get alerts", "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

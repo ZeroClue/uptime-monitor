@@ -128,6 +128,35 @@ func (db *DB) GetAllAlerts(ctx context.Context) ([]AlertWithHost, error) {
 	return alerts, nil
 }
 
+func (db *DB) GetAlertsByProject(ctx context.Context, projectID *int64) ([]AlertWithHost, error) {
+	query := `SELECT a.id, a.host_id, a.type, a.metric, a.severity, a.message, a.value, a.threshold, a.fired_at, a.acknowledged_at, a.resolved_at, a.silenced_until, COALESCE(h.name, '')
+		FROM alerts a LEFT JOIN hosts h ON h.id = a.host_id`
+	args := []interface{}{}
+	if projectID != nil {
+		query += ` WHERE h.project_id = ?`
+		args = append(args, *projectID)
+	}
+	query += ` ORDER BY a.fired_at DESC`
+
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var alerts []AlertWithHost
+	for rows.Next() {
+		var a AlertWithHost
+		var hostName string
+		if err := scanAlertRow(rows, &a.Alert, &hostName); err != nil {
+			return nil, err
+		}
+		a.HostName = hostName
+		alerts = append(alerts, a)
+	}
+	return alerts, nil
+}
+
 func (db *DB) AcknowledgeAllAlerts(ctx context.Context, severity string) error {
 	query := `UPDATE alerts SET acknowledged_at = ? WHERE acknowledged_at IS NULL`
 	args := []interface{}{time.Now().Unix()}

@@ -17,14 +17,14 @@ func (db *DB) GetHosts() ([]Host, error) {
 func (db *DB) GetHostsByProject(ctx context.Context, projectID interface{}) ([]Host, error) {
 	var query string
 	var args []interface{}
-	
+
 	if projectID == nil {
 		query = `SELECT id, name, connection, endpoint, port, user, key_path, sudo, timeout, proxy_jump, tags, collector_preference FROM hosts`
 	} else {
 		query = `SELECT id, name, connection, endpoint, port, user, key_path, sudo, timeout, proxy_jump, tags, collector_preference FROM hosts WHERE project_id = ?`
 		args = append(args, projectID)
 	}
-	
+
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
