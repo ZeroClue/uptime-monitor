@@ -83,7 +83,7 @@ func main() {
 		collector.NewTailscaleCollector(collector.WithTailscaleSSHClient(sshClient)),
 	)
 
-	sched := scheduler.New(cfg.PollInterval, db, collectorChain, logger)
+	sched := scheduler.NewWithRetry(cfg.PollInterval, db, collectorChain, logger, cfg.Retry)
 	go sched.Run(ctx)
 
 	alertEngine := alerting.NewEngine(db, sched, logger)

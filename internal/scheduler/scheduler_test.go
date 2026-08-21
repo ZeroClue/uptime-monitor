@@ -2,6 +2,8 @@ package scheduler
 
 import (
 	"context"
+	"errors"
+	"math/rand"
 	"testing"
 	"time"
 
@@ -9,6 +11,30 @@ import (
 	"github.com/ZeroClue/uptime-monitor/internal/config"
 	"github.com/ZeroClue/uptime-monitor/internal/storage"
 )
+
+type flakyCollector struct {
+	failFirst int
+	samples   []collector.Sample
+	calls     int
+}
+
+func (f *flakyCollector) Name() string { return "flaky" }
+func (f *flakyCollector) Collect(ctx context.Context, host collector.Host) ([]collector.Sample, error) {
+	f.calls++
+	if f.calls <= f.failFirst {
+		return nil, errors.New("connection refused")
+	}
+	return f.samples, nil
+}
+
+type errorCollector struct {
+	err error
+}
+
+func (e *errorCollector) Name() string { return "err" }
+func (e *errorCollector) Collect(ctx context.Context, host collector.Host) ([]collector.Sample, error) {
+	return nil, e.err
+}
 
 func TestScheduler_PollHostSuccess(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -86,7 +112,7 @@ func TestScheduler_PollHostFailure(t *testing.T) {
 	mockColl := &failingCollector{name: "failing"}
 	chain := collector.NewChain(mockColl)
 
-	sched := New(30*time.Second, db, chain, nil)
+	sched := NewWithRetry(30*time.Second, db, chain, nil, config.RetryConfig{MaxRetries: 1})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -101,6 +127,124 @@ func TestScheduler_PollHostFailure(t *testing.T) {
 	}
 	if status.LastError == "" {
 		t.Fatal("expected LastError to be set")
+	}
+	if status.LastPollAttempts != 1 {
+		t.Fatalf("expected 1 attempt with retries disabled, got %d", status.LastPollAttempts)
+	}
+}
+
+func TestScheduler_RetriesThenSucceeds(t *testing.T) {
+	tmpDir := t.TempDir()
+	db, err := storage.New(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to create DB: %v", err)
+	}
+	defer db.Close()
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("migration failed: %v", err)
+	}
+	if err := db.SeedHosts([]config.Host{{Name: "flaky", Connection: "ssh", Endpoint: "10.0.0.1", Port: 22, Timeout: time.Second}}); err != nil {
+		t.Fatalf("seed failed: %v", err)
+	}
+	retrieved, _ := db.GetHosts()
+	host := retrieved[0]
+
+	flaky := &flakyCollector{failFirst: 2, samples: []collector.Sample{
+		{Metric: "cpu.user_pct", Value: 42, Timestamp: time.Now(), Collector: "mock"},
+	}}
+	sched := NewWithRetry(30*time.Second, db, collector.NewChain(flaky), nil, config.RetryConfig{
+		MaxRetries: 3, BaseDelay: time.Millisecond, MaxDelay: 5 * time.Millisecond,
+	})
+
+	sched.pollHost(context.Background(), host)
+
+	status := sched.GetHostStatus(host.ID)
+	if status == nil {
+		t.Fatal("no status")
+	}
+	if status.ConsecutiveFails != 0 {
+		t.Fatalf("expected success after retries, got ConsecutiveFails=%d (err=%s)", status.ConsecutiveFails, status.LastError)
+	}
+	if status.LastPollAttempts != 3 {
+		t.Fatalf("expected 3 attempts (2 failures + success), got %d", status.LastPollAttempts)
+	}
+}
+
+func TestScheduler_NoRetryOnAuthFailure(t *testing.T) {
+	tmpDir := t.TempDir()
+	db, err := storage.New(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to create DB: %v", err)
+	}
+	defer db.Close()
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("migration failed: %v", err)
+	}
+	if err := db.SeedHosts([]config.Host{{Name: "locked", Connection: "ssh", Endpoint: "10.0.0.1", Port: 22, Timeout: time.Second}}); err != nil {
+		t.Fatalf("seed failed: %v", err)
+	}
+	retrieved, _ := db.GetHosts()
+	host := retrieved[0]
+
+	authFail := &errorCollector{err: errors.New("ssh: Permission denied (publickey,password)")}
+	sched := NewWithRetry(30*time.Second, db, collector.NewChain(authFail), nil, config.RetryConfig{
+		MaxRetries: 3, BaseDelay: time.Millisecond, MaxDelay: 5 * time.Millisecond,
+	})
+
+	sched.pollHost(context.Background(), host)
+
+	status := sched.GetHostStatus(host.ID)
+	if status == nil {
+		t.Fatal("no status")
+	}
+	if status.LastPollAttempts != 1 {
+		t.Fatalf("auth failures must not retry; got %d attempts", status.LastPollAttempts)
+	}
+}
+
+func TestRetryable_Classification(t *testing.T) {
+	cases := []struct {
+		err         error
+		retryWanted bool
+	}{
+		{errors.New("connection refused"), true},
+		{errors.New("i/o timeout"), true},
+		{errors.New("failed to parse psutil JSON"), true},
+		{errors.New("Permission denied (publickey)"), false},
+		{errors.New("authentication failed"), false},
+		{errors.New("Host key verification failed."), false},
+		{nil, false},
+	}
+	for _, tc := range cases {
+		if got := retryable(tc.err); got != tc.retryWanted {
+			t.Errorf("retryable(%v) = %v, want %v", tc.err, got, tc.retryWanted)
+		}
+	}
+}
+
+func TestBackoffDelay_ExponentialWithCeiling(t *testing.T) {
+	cfg := config.RetryConfig{BaseDelay: time.Second, MaxDelay: 8 * time.Second, JitterFraction: 0}
+	rng := rand.New(rand.NewSource(1))
+	want := []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 8 * time.Second}
+	for attempt, w := range want {
+		got := backoffDelay(cfg, attempt, rng)
+		if got != w {
+			t.Errorf("attempt %d: got %v, want %v", attempt, got, w)
+		}
+	}
+}
+
+func TestEffectivePlan_HostOverrides(t *testing.T) {
+	global := config.RetryConfig{}.WithDefaults()
+	max3, base500, ceil9k := int64(5), int64(500), int64(9000)
+	host := storage.Host{RetryMaxRetries: &max3, RetryBaseMs: &base500, RetryMaxMs: &ceil9k}
+	p := effectivePlan(global, host)
+	if p.maxAttempts != 5 || p.base != 500*time.Millisecond || p.max != 9*time.Second {
+		t.Fatalf("override plan wrong: %+v", p)
+	}
+	inherited := effectivePlan(global, storage.Host{})
+	if inherited.maxAttempts != global.MaxRetries || inherited.base != global.BaseDelay {
+		t.Fatalf("inheritance broken: %+v", inherited)
 	}
 }
 

@@ -173,5 +173,16 @@ func (db *DB) Migrate() error {
 		return fmt.Errorf("migration failed: %w", err)
 	}
 
+	// Per-host retry overrides (nullable = inherit global retry config)
+	for _, col := range []string{
+		`ALTER TABLE hosts ADD COLUMN retry_max_retries INTEGER`,
+		`ALTER TABLE hosts ADD COLUMN retry_base_delay_ms INTEGER`,
+		`ALTER TABLE hosts ADD COLUMN retry_max_delay_ms INTEGER`,
+	} {
+		if _, err := db.Exec(col); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+			return fmt.Errorf("migration failed: %w", err)
+		}
+	}
+
 	return nil
 }

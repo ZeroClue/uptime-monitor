@@ -42,19 +42,22 @@ func (db *DB) DBSizeMB() float64 {
 }
 
 type Host struct {
-	ID                  int64
-	Name                string
-	Connection          string
-	Endpoint            string
-	Port                int
-	User                string
-	KeyPath             string
-	Sudo                bool
-	TimeoutRaw          int64
-	Timeout             time.Duration
-	ProxyJump           string
-	Tags                []string
-	CollectorPreference string
+	ID                  int64         `json:"id"`
+	Name                string        `json:"name"`
+	Connection          string        `json:"connection"`
+	Endpoint            string        `json:"endpoint"`
+	Port                int           `json:"port"`
+	User                string        `json:"user"`
+	KeyPath             string        `json:"key_path"`
+	Sudo                bool          `json:"sudo"`
+	TimeoutRaw          int64         `json:"timeout"`
+	Timeout             time.Duration `json:"-"`
+	ProxyJump           string        `json:"proxy_jump"`
+	Tags                []string      `json:"tags"`
+	CollectorPreference string        `json:"collector_preference"`
+	RetryMaxRetries     *int64        `json:"retry_max_retries"`
+	RetryBaseMs         *int64        `json:"retry_base_delay_ms"`
+	RetryMaxMs          *int64        `json:"retry_max_delay_ms"`
 }
 
 type Alert struct {
