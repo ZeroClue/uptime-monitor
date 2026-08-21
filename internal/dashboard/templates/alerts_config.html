@@ -244,25 +244,25 @@
         );
     }
 
+    function currentProjectId() {
+        const pid = new URLSearchParams(window.location.search).get('project_id');
+        return pid ? parseInt(pid, 10) : null;
+    }
+
+    function scopeUrl(path) {
+        const pid = new URLSearchParams(window.location.search).get('project_id');
+        return pid ? path + '?project_id=' + encodeURIComponent(pid) : path;
+    }
+
     // Rules
     async function loadRules() {
-        function currentProjectId() {
-            const pid = new URLSearchParams(window.location.search).get('project_id');
-            return pid ? parseInt(pid, 10) : null;
-        }
-
-        function scopeUrl(path) {
-            const pid = new URLSearchParams(window.location.search).get('project_id');
-            return pid ? path + '?project_id=' + encodeURIComponent(pid) : path;
-        }
-
         rules = await apiGet(scopeUrl('/api/alert-rules'));
         renderRules();
     }
 
     function renderRules() {
         const tbody = document.getElementById('rulesBody');
-        tbody.innerHTML = rules.map(r => `
+        tbody.innerHTML = (rules || []).map(r => `
             <tr>
                 <td>${r.metric}</td>
                 <td>${r.scope}${r.host_id ? ' (Host ' + r.host_id + ')' : ''}</td>
@@ -370,7 +370,7 @@
 
     function renderChannels() {
         const tbody = document.getElementById('channelsBody');
-        tbody.innerHTML = channels.map(c => `
+        tbody.innerHTML = (channels || []).map(c => `
             <tr>
                 <td>${c.name}</td>
                 <td>${c.type}</td>
@@ -501,7 +501,7 @@
     }
 
     // Init
-    document.addEventListener('DOMContentLoaded', async () => {
+    async function submitChannel(e) {
         e.preventDefault();
         const form = e.target;
         const data = {

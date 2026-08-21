@@ -289,7 +289,7 @@ func (db *DB) GetNotificationChannels(ctx context.Context) ([]NotificationChanne
 		return nil, err
 	}
 	defer rows.Close()
-	var channels []NotificationChannel
+	channels := make([]NotificationChannel, 0)
 	for rows.Next() {
 		var c NotificationChannel
 		if err := scanNotificationChannelRow(rows, &c); err != nil {
@@ -342,7 +342,7 @@ func (db *DB) GetEnabledNotificationChannels(ctx context.Context) ([]Notificatio
 		return nil, err
 	}
 	defer rows.Close()
-	var channels []NotificationChannel
+	channels := make([]NotificationChannel, 0)
 	for rows.Next() {
 		var c NotificationChannel
 		if err := scanNotificationChannelRow(rows, &c); err != nil {
@@ -422,7 +422,7 @@ func (db *DB) GetAlertRulesByProject(ctx context.Context, projectID *int64) ([]A
 		return nil, err
 	}
 	defer rows.Close()
-	var rules []AlertRule
+	rules := make([]AlertRule, 0)
 	for rows.Next() {
 		var r AlertRule
 		if err := scanAlertRuleRow(rows, &r); err != nil {
@@ -447,7 +447,7 @@ func (db *DB) GetNotificationChannelsByProject(ctx context.Context, projectID *i
 		return nil, err
 	}
 	defer rows.Close()
-	var channels []NotificationChannel
+	channels := make([]NotificationChannel, 0)
 	for rows.Next() {
 		var c NotificationChannel
 		if err := scanNotificationChannelRow(rows, &c); err != nil {
