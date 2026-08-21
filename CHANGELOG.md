@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Local collector mode** — `connection: local` hosts are polled by reading `/proc` directly (loadavg, meminfo, stat incl. per-core, diskstats, net/dev, TCP/UDP tables, uptime) plus `df` for mounts; no SSH keys needed. `HOST_PROC` env (or compose mount + `pid: host`) supports monitoring the host from inside a container. See README "Monitoring localhost".
 - **Project switcher UI** — nav-bar dropdown populated from `/api/projects`; selecting a project scopes the hosts list and alerts pages via `?project_id=` (deep-linkable).
 - **Project-scoped alerts** — `GET /api/alerts?project_id=N` filters alerts to hosts in a project; the alerts and alert-history pages honor the current project from URL/header/cookie; invalid ids return 400 instead of panicking on malformed input.
 - **Default project bootstrap** — startup auto-creates a `Default` project when none exist and assigns unassigned hosts to it (`EnsureDefaultProject`).

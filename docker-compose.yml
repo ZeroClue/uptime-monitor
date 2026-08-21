@@ -12,6 +12,10 @@ services:
       - DASHBOARD_PASSWORD=${DASHBOARD_PASSWORD:-changeme}
       - POLL_INTERVAL=${POLL_INTERVAL:-30s}
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      # Local collector: to monitor the HOST (not the container), uncomment
+      # HOST_PROC and mount /proc read-only, and add `pid: host` under this
+      # service. See README "Monitoring localhost".
+      - HOST_PROC=${HOST_PROC:-}
       # Tailscale configuration (optional)
       - TS_AUTHKEY=${TS_AUTHKEY:-}
       - TS_HOSTNAME=${TS_HOSTNAME:-uptime-monitor}

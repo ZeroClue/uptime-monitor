@@ -77,6 +77,7 @@ func main() {
 	sshClient := ssh.NewSSHClient(logger, nil)
 
 	collectorChain := collector.NewChain(
+		collector.NewLocalProcfsCollector(collector.WithLocalLogger(logger)),
 		collector.NewPsutilCollector(collector.WithPsutilSSHClient(sshClient)),
 		collector.NewProcfsCollector(collector.WithProcfsSSHClient(sshClient)),
 		collector.NewTailscaleCollector(collector.WithTailscaleSSHClient(sshClient)),
