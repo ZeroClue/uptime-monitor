@@ -65,6 +65,17 @@
         return (d > 0 ? d + 'd ' : '') + h + 'h ' + m + 'm';
     }
 
+    function buildTooltip(s) {
+        if (!s) return 'No poll data yet';
+        const parts = [];
+        parts.push('reachable: ' + (s.reachable ? 'yes' : 'no'));
+        if (s.last_poll) parts.push('last poll: ' + new Date(s.last_poll).toLocaleString());
+        if (s.collector) parts.push('collector: ' + s.collector);
+        if (s.latency_ms) parts.push('latency: ' + s.latency_ms + 'ms');
+        if (s.last_error) parts.push('error: ' + s.last_error);
+        return parts.join('\n');
+    }
+
     function rowFor(host) {
         const info = statusInfo(host.id);
         const sum = summaries[host.id] || {};
@@ -79,6 +90,7 @@
             tagsHtml: tags,
             tags: host.tags || [],
             project: host.project_name || '—',
+            tooltip: buildTooltip(summaries[host.id]),
             id: host.id
         };
     }
@@ -116,7 +128,7 @@
         tbody.innerHTML = rows.map(r =>
             '<tr><td><a href="/host/' + r.id + '">' + r.name + '</a><div class="tags">' + r.tagsHtml + '</div></td>' +
             (SHOW_PROJECT_COLUMN ? '<td>' + r.project + '</td>' : '') +
-            '<td><span class="status ' + r.status + '">' + r.statusLabel + '</span></td>' +
+            '<td><span class="status ' + r.status + '" title="' + (r.tooltip || r.statusLabel) + '">' + r.statusLabel + '</span></td>' +
             '<td class="num mono">' + fmtPct(r.cpu) + '</td>' +
             '<td class="num mono">' + fmtPct(r.mem) + '</td>' +
             '<td class="num mono">' + fmtUptime(r.uptime) + '</td></tr>'

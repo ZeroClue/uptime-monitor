@@ -19,7 +19,7 @@
     </div>
 </div>
 <table class="data-table">
-    <thead><tr><th>Host</th><th>Last Collector</th><th>Last Success</th><th>Consecutive Fails</th><th>Last Error</th></tr></thead>
+    <thead><tr><th>Host</th><th>Last Collector</th><th>Last Success</th><th>Fails</th><th>Attempts</th><th>Latency</th><th>Last Error</th></tr></thead>
     <tbody id="monitorRows"></tbody>
 </table>
 <script>
@@ -44,7 +44,7 @@
                 document.getElementById('interval').textContent = data.interval || '30s';
                 const tbody = document.getElementById('monitorRows');
                 if (!data.hosts.length) {
-                    tbody.innerHTML = '<tr><td colspan="5">No hosts configured</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="7">No hosts configured</td></tr>';
                 } else {
                     tbody.innerHTML = data.hosts.map(h => {
                         const sc = statusClass(h.consecutive_fails);
@@ -52,6 +52,8 @@
                             '<td class="mono">' + (h.last_collector || '—') + '</td>' +
                             '<td>' + (h.last_success || 'Never') + '</td>' +
                             '<td><span class="status ' + sc + '">' + statusLabel(h.consecutive_fails) + ' (' + h.consecutive_fails + ')</span></td>' +
+                            '<td class="mono">' + (h.poll_attempts || '—') + '</td>' +
+                            '<td class="mono">' + (h.latency_ms != null ? h.latency_ms + 'ms' : '—') + '</td>' +
                             '<td>' + (h.last_error || '—') + '</td>';
                         return '<tr>' + row + '</tr>';
                     }).join('');

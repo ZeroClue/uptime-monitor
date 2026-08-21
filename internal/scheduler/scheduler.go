@@ -29,8 +29,10 @@ type HostStatus struct {
 	HostID           int64
 	ConsecutiveFails int
 	LastSuccess      time.Time
+	LastFailure      time.Time
 	LastError        string
 	LastCollector    string
+	LastLatency      time.Duration // wall-clock duration of the most recent poll
 	LastPollAttempts int           // attempts made in the most recent poll (1 = no retry)
 	LastRetryTime    time.Duration // time spent backing off during the most recent poll
 }
@@ -280,6 +282,10 @@ func (s *Scheduler) pollHost(ctx context.Context, host storage.Host) {
 	}
 	status.LastPollAttempts = attempts
 	status.LastRetryTime = retryTime
+	status.LastLatency = latency
+	if err != nil {
+		status.LastFailure = time.Now()
+	}
 	s.mu.Unlock()
 
 	if err != nil {
