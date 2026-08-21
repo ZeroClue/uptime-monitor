@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -120,7 +121,7 @@ func TestAuthMiddleware_BearerToken(t *testing.T) {
 	})
 }
 
-func TestAuthMiddleware_LegacyHashMigrated(t *testing.T) {
+func TestAuthMiddleware_LegacyHashRejected(t *testing.T) {
 	s := newTestServer(t)
 	ctx := context.Background()
 
@@ -129,24 +130,129 @@ func TestAuthMiddleware_LegacyHashMigrated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create token: %v", err)
 	}
-	// Overwrite with legacy XOR hash as an old deployment would have stored.
+	// Overwrite with the old XOR hash as a pre-upgrade deployment would have.
 	if _, err := s.db.ExecContext(ctx, `UPDATE api_tokens SET token_hash = ? WHERE id = ?`, legacyXORHash(plain), id); err != nil {
 		t.Fatalf("seed legacy hash: %v", err)
 	}
 
 	rec := tokenRequest(s, "/api/alerts", http.MethodGet, plain)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("legacy token should authenticate, got %d", rec.Code)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("legacy-hashed tokens must be rejected after SHA-256 upgrade, got %d", rec.Code)
+	}
+}
+
+func TestAPITokenRequest_Validation(t *testing.T) {
+	valid := func(mutate func(*apiTokenRequest)) apiTokenRequest {
+		req := apiTokenRequest{Name: "n", Scopes: "read"}
+		mutate(&req)
+		return req
 	}
 
-	row := s.db.QueryRowContext(ctx, `SELECT token_hash FROM api_tokens WHERE id = ?`, id)
-	var stored string
-	if err := row.Scan(&stored); err != nil {
-		t.Fatalf("scan hash: %v", err)
+	t.Run("defaults empty scopes to read", func(t *testing.T) {
+		req := valid(func(r *apiTokenRequest) { r.Scopes = "" })
+		tok, err := req.toAPIToken()
+		if err != nil || tok.Scopes != "read" {
+			t.Fatalf("got %v, %v", tok, err)
+		}
+	})
+
+	t.Run("normalizes case", func(t *testing.T) {
+		req := valid(func(r *apiTokenRequest) { r.Scopes = "ADMIN" })
+		tok, err := req.toAPIToken()
+		if err != nil || tok.Scopes != "admin" {
+			t.Fatalf("got %v, %v", tok, err)
+		}
+	})
+
+	t.Run("rejects unknown scope", func(t *testing.T) {
+		req := valid(func(r *apiTokenRequest) { r.Scopes = "read,write" })
+		if _, err := req.toAPIToken(); err == nil {
+			t.Fatal("expected error for multi-value scope")
+		}
+	})
+
+	t.Run("rejects empty name", func(t *testing.T) {
+		req := valid(func(r *apiTokenRequest) { r.Name = "  " })
+		if _, err := req.toAPIToken(); err == nil {
+			t.Fatal("expected error for blank name")
+		}
+	})
+
+	t.Run("parses expiry to end of day", func(t *testing.T) {
+		date := "2026-09-01"
+		req := valid(func(r *apiTokenRequest) { r.ExpiresAt = &date })
+		tok, err := req.toAPIToken()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := time.Date(2026, 9, 1, 23, 59, 59, 0, time.UTC)
+		if !tok.ExpiresAt.Valid || !tok.ExpiresAt.Time.UTC().Equal(want) {
+			t.Fatalf("expected %v, got %+v", want, tok.ExpiresAt)
+		}
+	})
+
+	t.Run("rejects malformed expiry", func(t *testing.T) {
+		bad := "09/01/2026"
+		req := valid(func(r *apiTokenRequest) { r.ExpiresAt = &bad })
+		if _, err := req.toAPIToken(); err == nil {
+			t.Fatal("expected error for bad date format")
+		}
+	})
+}
+
+func TestAuthMiddleware_ScopedTokenCannotWidenViaParam(t *testing.T) {
+	s := newTestServer(t)
+	ctx := context.Background()
+
+	projectA, err := s.db.CreateProject(ctx, &storage.Project{Name: "locked", Type: "explicit"})
+	if err != nil {
+		t.Fatalf("create project: %v", err)
 	}
-	if stored != storage.HashAPIToken(plain) {
-		t.Error("expected token re-hashed to SHA-256 after successful use")
+	projectB, err := s.db.CreateProject(ctx, &storage.Project{Name: "other", Type: "explicit"})
+	if err != nil {
+		t.Fatalf("create project B: %v", err)
 	}
+	hosts, _ := s.db.GetHosts()
+	if len(hosts) < 2 {
+		t.Fatal("need 2 hosts")
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE hosts SET project_id = ? WHERE id = ?`, projectB, hosts[1].ID); err != nil {
+		t.Fatalf("assign host: %v", err)
+	}
+	if err := s.db.InsertAlert(ctx, storage.Alert{HostID: hosts[1].ID, Type: "threshold", Metric: "mem.used_pct", Severity: "critical", Message: "m", Value: 95, Threshold: 90, FiredAt: time.Now()}); err != nil {
+		t.Fatalf("insert alert: %v", err)
+	}
+
+	plain := createScopedToken(t, s, projectA)
+
+	handler := s.authMiddleware(s.projectMiddleware(s.handleAPIAlerts))
+	req := httptest.NewRequest(http.MethodGet, "/api/alerts?project_id="+strconv.FormatInt(projectB, 10), nil)
+	req.Header.Set("Authorization", "Bearer "+plain)
+	rec := httptest.NewRecorder()
+	handler(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	var alerts []storage.AlertWithHost
+	if err := json.Unmarshal(rec.Body.Bytes(), &alerts); err != nil {
+		t.Fatalf("bad JSON: %v", err)
+	}
+	for _, a := range alerts {
+		if a.Metric == "mem.used_pct" {
+			t.Fatal("scoped token escaped its project via query param")
+		}
+	}
+}
+
+// createScopedToken creates a read token bound to the given project.
+func createScopedToken(t *testing.T, s *Server, projectID int64) string {
+	t.Helper()
+	plain, _, err := s.db.CreateAPIToken(context.Background(), &storage.APIToken{Name: "scoped-token", Scopes: "read", ProjectID: &projectID})
+	if err != nil {
+		t.Fatalf("create scoped token: %v", err)
+	}
+	return plain
 }
 
 func TestAuthMiddleware_TokenProjectScoping(t *testing.T) {
@@ -272,7 +378,7 @@ func TestAPITokenFromContext(t *testing.T) {
 		t.Errorf("expected nil outside request flow, got %+v", got)
 	}
 	want := &APITokenInfo{ID: 5, Name: "n", Scopes: "read"}
-	ctx := context.WithValue(context.Background(), apiTokenContextKey, want)
+	ctx := context.WithValue(context.Background(), apiTokenCtxKey, want)
 	got := APITokenFromContext(ctx)
 	if got != want {
 		t.Errorf("expected %+v, got %+v", want, got)

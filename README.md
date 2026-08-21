@@ -341,13 +341,13 @@ External systems authenticate with `Authorization: Bearer <token>` instead of a 
 | `write` | + POST/PUT/DELETE on hosts and projects |
 | `admin` | + alert rules, notification channels, API token management |
 
-Tokens may be scoped to a project: their requests see only that project's hosts and alerts. Requests are rate-limited to 60/min per token (`429` with `Retry-After`); `last_used_at` updates on use.
+Tokens may be scoped to a project: their requests see only that project's hosts and alerts, regardless of any `project_id` parameters they send. Requests are rate-limited to 60/min per token (`429` with `Retry-After`); `last_used_at` updates on use (throttled to once per minute to limit write load).
 
 ```bash
 curl -H "Authorization: Bearer <token>" http://localhost:8080/api/alerts
 ```
 
-Tokens created before the SHA-256 upgrade are re-hashed transparently on first successful use.
+Tokens created before v0.5 (weak XOR hashing) no longer authenticate; recreate them in Alert Config.
 
 ### Monitoring localhost
 

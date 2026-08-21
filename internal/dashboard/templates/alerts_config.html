@@ -469,7 +469,8 @@
                 await apiPut('/api/api-tokens/' + id, data);
             } else {
                 const result = await apiPost('/api/api-tokens', data);
-                alert('Token created: ' + result.token + '\nSave this token now - it will not be shown again!');
+                try { navigator.clipboard.writeText(result.token); } catch (err) { /* clipboard unavailable */ }
+                alert('Token created (copied to clipboard):\n' + result.token + '\n\nSave it now - it will not be shown again!');
             }
             closeTokenModal();
             loadTokens();

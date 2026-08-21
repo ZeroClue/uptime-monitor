@@ -27,18 +27,6 @@ func HashAPIToken(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// legacyHashToken is the pre-SHA-256 XOR scheme. Kept only so tokens
-// created before the upgrade keep working; they are re-hashed lazily on
-// first successful use (see UpdateAPITokenHash).
-func legacyHashToken(token string) string {
-	bytes := []byte(token)
-	hash := make([]byte, 32)
-	for i, b := range bytes {
-		hash[i%32] ^= b
-	}
-	return hex.EncodeToString(hash)
-}
-
 func scanAPITokenRow(row interface{ Scan(...any) error }, t *APIToken) error {
 	var projectID sql.NullInt64
 	var expiresAt, lastUsedAt, createdAt, updatedAt sql.NullInt64
@@ -150,13 +138,6 @@ func (db *DB) UpdateAPIToken(ctx context.Context, token *APIToken) error {
 
 func (db *DB) DeleteAPIToken(ctx context.Context, id int64) error {
 	_, err := db.ExecContext(ctx, `DELETE FROM api_tokens WHERE id = ?`, id)
-	return err
-}
-
-// UpdateAPITokenHash re-hashes a token in place after a successful
-// legacy-scheme verification, migrating it to SHA-256.
-func (db *DB) UpdateAPITokenHash(ctx context.Context, id int64, hash string) error {
-	_, err := db.ExecContext(ctx, `UPDATE api_tokens SET token_hash = ?, updated_at = ? WHERE id = ?`, hash, time.Now().Unix(), id)
 	return err
 }
 

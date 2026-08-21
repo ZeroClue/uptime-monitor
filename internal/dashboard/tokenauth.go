@@ -2,19 +2,17 @@ package dashboard
 
 import (
 	"context"
-	"encoding/hex"
+	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/ZeroClue/uptime-monitor/internal/storage"
 )
-
-type apiTokenKey int
-
-const apiTokenContextKey apiTokenKey = 0
 
 // Scope levels; higher implies lower (admin ⊃ write ⊃ read).
 const (
@@ -36,6 +34,7 @@ var configPrefixes = []string{
 	"/api/api-tokens",
 }
 
+// APITokenInfo is the authenticated token identity attached to request context.
 type APITokenInfo struct {
 	ID        int64
 	Name      string
@@ -46,7 +45,7 @@ type APITokenInfo struct {
 // APITokenFromContext returns the authenticated token info, or nil when the
 // request authenticated via session cookie.
 func APITokenFromContext(ctx context.Context) *APITokenInfo {
-	if tok, ok := ctx.Value(apiTokenContextKey).(*APITokenInfo); ok {
+	if tok, ok := ctx.Value(apiTokenCtxKey).(*APITokenInfo); ok {
 		return tok
 	}
 	return nil
@@ -60,7 +59,7 @@ func requiredScope(r *http.Request) int {
 		}
 	}
 	switch r.Method {
-	case http.MethodGet, http.MethodHead:
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
 		return scopeRead
 	default:
 		return scopeWrite
@@ -95,14 +94,7 @@ func (s *Server) authenticateToken(r *http.Request) (*storage.APIToken, error) {
 		return nil, err
 	}
 	if tok == nil {
-		// Legacy XOR-hashed token? Verify and migrate to SHA-256 in place.
-		tok, err = s.db.GetAPITokenByHash(r.Context(), legacyHash(presented))
-		if err != nil || tok == nil {
-			return nil, errBadToken
-		}
-		if err := s.db.UpdateAPITokenHash(r.Context(), tok.ID, storage.HashAPIToken(presented)); err != nil {
-			s.logger.Warn("failed to migrate legacy token hash", "token_id", tok.ID, "error", err)
-		}
+		return nil, errBadToken
 	}
 	if tok.ExpiresAt.Valid && !tok.ExpiresAt.Time.After(time.Now()) {
 		return nil, errExpired
@@ -110,23 +102,16 @@ func (s *Server) authenticateToken(r *http.Request) (*storage.APIToken, error) {
 	return tok, nil
 }
 
-// legacyHash mirrors storage.legacyHashToken without exporting the weak scheme.
-func legacyHash(token string) string {
-	b := []byte(token)
-	h := make([]byte, 32)
-	for i, c := range b {
-		h[i%32] ^= c
-	}
-	return hex.EncodeToString(h)
-}
-
-// tokenRateLimiter is a fixed-window per-token limiter.
+// tokenRateLimiter is a fixed-window per-token limiter. Window entries are
+// capped; the map resets if token churn exceeds maxTrackedWindows.
 type tokenRateLimiter struct {
 	mu     sync.Mutex
 	wins   map[int64]*rateWindow
 	limit  int
 	window time.Duration
 }
+
+const maxTrackedWindows = 10_000
 
 type rateWindow struct {
 	start time.Time
@@ -145,6 +130,9 @@ func (l *tokenRateLimiter) Allow(id int64) bool {
 	now := time.Now()
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if len(l.wins) >= maxTrackedWindows {
+		l.wins = make(map[int64]*rateWindow)
+	}
 	w := l.wins[id]
 	if w == nil || now.Sub(w.start) >= l.window {
 		l.wins[id] = &rateWindow{start: now, count: 1}
@@ -155,6 +143,11 @@ func (l *tokenRateLimiter) Allow(id int64) bool {
 	}
 	w.count++
 	return true
+}
+
+// RetryAfter reports the current window length in whole seconds.
+func (l *tokenRateLimiter) RetryAfter() int {
+	return int(l.window.Seconds())
 }
 
 // lastUsedRecorder throttles DB writes of last_used_at to once per interval.
@@ -171,6 +164,9 @@ func newLastUsedRecorder(interval time.Duration) *lastUsedRecorder {
 func (r *lastUsedRecorder) ShouldRecord(id int64, now time.Time) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if len(r.last) >= maxTrackedWindows {
+		r.last = make(map[int64]time.Time)
+	}
 	if prev, ok := r.last[id]; ok && now.Sub(prev) < r.interval {
 		return false
 	}
@@ -192,7 +188,7 @@ func (s *Server) enforceTokenAuth(next http.HandlerFunc, w http.ResponseWriter, 
 		return true
 	}
 	if !s.tokenLimiter.Allow(tok.ID) {
-		w.Header().Set("Retry-After", "60")
+		w.Header().Set("Retry-After", strconv.Itoa(s.tokenLimiter.RetryAfter()))
 		writeJSONError(w, http.StatusTooManyRequests, "rate limit exceeded")
 		return true
 	}
@@ -206,7 +202,7 @@ func (s *Server) enforceTokenAuth(next http.HandlerFunc, w http.ResponseWriter, 
 		}
 	}
 
-	ctx := context.WithValue(r.Context(), apiTokenContextKey, &APITokenInfo{
+	ctx := context.WithValue(r.Context(), apiTokenCtxKey, &APITokenInfo{
 		ID:        tok.ID,
 		Name:      tok.Name,
 		Scopes:    tok.Scopes,
@@ -223,4 +219,36 @@ func writeJSONError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_, _ = w.Write([]byte(`{"error":"` + msg + `"}`))
+}
+
+// apiTokenRequest is the wire format for token create/update; expires_at is
+// a YYYY-MM-DD date string (end of day UTC).
+type apiTokenRequest struct {
+	Name      string  `json:"name"`
+	Scopes    string  `json:"scopes"`
+	ProjectID *int64  `json:"project_id"`
+	ExpiresAt *string `json:"expires_at"`
+}
+
+func (req *apiTokenRequest) toAPIToken() (*storage.APIToken, error) {
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return nil, errors.New("name is required")
+	}
+	scopes := strings.ToLower(strings.TrimSpace(req.Scopes))
+	if scopes == "" {
+		scopes = "read"
+	}
+	if _, ok := scopeLevels[scopes]; !ok {
+		return nil, fmt.Errorf("invalid scopes %q (want read, write, or admin)", req.Scopes)
+	}
+	tok := &storage.APIToken{Name: name, Scopes: scopes, ProjectID: req.ProjectID}
+	if req.ExpiresAt != nil && *req.ExpiresAt != "" {
+		day, err := time.Parse("2006-01-02", *req.ExpiresAt)
+		if err != nil {
+			return nil, fmt.Errorf("invalid expires_at (want YYYY-MM-DD): %w", err)
+		}
+		tok.ExpiresAt = sql.NullTime{Time: day.Add(24*time.Hour - time.Second), Valid: true}
+	}
+	return tok, nil
 }
