@@ -60,7 +60,7 @@ func NewSSHClient(logger *slog.Logger, defaults *SSHTargetDefaults) SSHClient {
 			UserKnownHostsFile:    "/dev/null",
 			ConnectTimeout:        10 * time.Second,
 			DefaultPort:           22,
-			DefaultTimeout:        10 * time.Second,
+			DefaultTimeout:        30 * time.Second,
 		}
 	}
 	return &sshClient{

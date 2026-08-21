@@ -335,6 +335,16 @@ Hosts and alerts can be scoped to projects. The nav bar's project switcher filte
 
 Failed polls retry with exponential backoff — `delay = min(base_delay * 2^attempt + jitter, max_delay)`. Defaults: 3 attempts, 2s base, 30s max, 0.2 jitter; configure globally via the `retry:` block in `hosts.yaml` or per host (`retry_max_retries`, `retry_base_delay`, `retry_max_delay`, or the host form). Authentication and host-key failures are never retried. The last poll's attempt count and total backoff time appear in `/api/hosts/status` (`poll_attempts`, `retry_time_ms`).
 
+### Host timeouts
+
+Three per-host budgets (all optional, set in hosts.yaml or the host form):
+
+| Field | Phase | Default |
+|-------|-------|---------|
+| `timeout` | each SSH command execution | 30s |
+| `ssh_timeout` (`ssh_timeout_ms` in API/form) | connection establishment | 10s |
+| `collector_timeout` (`collector_timeout_ms`) | whole collect across all collectors in the chain | 30s |
+
 ### API Tokens
 
 External systems authenticate with `Authorization: Bearer <token>` instead of a session cookie. Create tokens in **Alert Config → API Tokens**; the plaintext is shown once at creation.

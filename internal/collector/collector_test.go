@@ -55,3 +55,19 @@ func (m *mockCollector) Name() string { return m.name }
 func (m *mockCollector) Collect(ctx context.Context, host Host) ([]Sample, error) {
 	return m.samples, nil
 }
+
+func TestSSHTargetFromHost_TimeoutMapping(t *testing.T) {
+	host := Host{Endpoint: "h", Port: 22, Timeout: 45 * time.Second}
+	target := SSHTargetFromHost(host)
+	if target.ConnectTimeout != 10*time.Second {
+		t.Errorf("default connect timeout = %v, want 10s", target.ConnectTimeout)
+	}
+	if target.Timeout != 45*time.Second {
+		t.Errorf("command timeout = %v, want host value", target.Timeout)
+	}
+
+	host.SSHTimeout = 3 * time.Second
+	if got := SSHTargetFromHost(host).ConnectTimeout; got != 3*time.Second {
+		t.Errorf("per-host connect timeout = %v, want 3s", got)
+	}
+}

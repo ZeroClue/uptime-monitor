@@ -19,6 +19,10 @@ func execSSH(ctx context.Context, logger *slog.Logger, host Host, cmd string, ti
 // SSHTargetFromHost converts a collector.Host to an ssh.SSHTarget.
 // This is the single point of mapping between collector and SSH concerns.
 func SSHTargetFromHost(host Host) *ssh.SSHTarget {
+	connectTimeout := 10 * time.Second // default; overridable per host
+	if host.SSHTimeout > 0 {
+		connectTimeout = host.SSHTimeout
+	}
 	return &ssh.SSHTarget{
 		Endpoint:              host.Endpoint,
 		Port:                  host.Port,
@@ -28,6 +32,6 @@ func SSHTargetFromHost(host Host) *ssh.SSHTarget {
 		Timeout:               host.Timeout,
 		StrictHostKeyChecking: "no",
 		UserKnownHostsFile:    "/dev/null",
-		ConnectTimeout:        10 * time.Second,
+		ConnectTimeout:        connectTimeout,
 	}
 }

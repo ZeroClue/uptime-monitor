@@ -15,14 +15,14 @@ func (db *DB) GetHosts() ([]Host, error) {
 	return db.GetHostsByProject(context.Background(), nil)
 }
 
-const hostColumns = `id, name, connection, endpoint, port, user, key_path, sudo, timeout, proxy_jump, tags, collector_preference, retry_max_retries, retry_base_delay_ms, retry_max_delay_ms`
+const hostColumns = `id, name, connection, endpoint, port, user, key_path, sudo, timeout, proxy_jump, tags, collector_preference, retry_max_retries, retry_base_delay_ms, retry_max_delay_ms, ssh_timeout_ms, collector_timeout_ms`
 
 // scanHostRow scans one hosts row (column order per hostColumns) into h.
 func scanHostRow(row interface{ Scan(...any) error }, h *Host) error {
 	var tagsJSON string
 	var timeoutRaw int64
-	var retryMax, retryBaseMs, retryMaxMs sql.NullInt64
-	if err := row.Scan(&h.ID, &h.Name, &h.Connection, &h.Endpoint, &h.Port, &h.User, &h.KeyPath, &h.Sudo, &timeoutRaw, &h.ProxyJump, &tagsJSON, &h.CollectorPreference, &retryMax, &retryBaseMs, &retryMaxMs); err != nil {
+	var retryMax, retryBaseMs, retryMaxMs, sshTimeoutMs, collectorTimeoutMs sql.NullInt64
+	if err := row.Scan(&h.ID, &h.Name, &h.Connection, &h.Endpoint, &h.Port, &h.User, &h.KeyPath, &h.Sudo, &timeoutRaw, &h.ProxyJump, &tagsJSON, &h.CollectorPreference, &retryMax, &retryBaseMs, &retryMaxMs, &sshTimeoutMs, &collectorTimeoutMs); err != nil {
 		return err
 	}
 	h.TimeoutRaw = timeoutRaw
@@ -36,6 +36,12 @@ func scanHostRow(row interface{ Scan(...any) error }, h *Host) error {
 	}
 	if retryMaxMs.Valid {
 		h.RetryMaxMs = &retryMaxMs.Int64
+	}
+	if sshTimeoutMs.Valid {
+		h.SshTimeoutMs = &sshTimeoutMs.Int64
+	}
+	if collectorTimeoutMs.Valid {
+		h.CollectorTimeoutMs = &collectorTimeoutMs.Int64
 	}
 	return nil
 }
@@ -83,8 +89,8 @@ func (db *DB) SeedHosts(hosts []config.Host) error {
 	for _, h := range hosts {
 		tags, _ := json.Marshal(h.Tags)
 		_, err := db.Exec(`
-			INSERT INTO hosts (name, connection, endpoint, port, user, key_path, sudo, timeout, proxy_jump, tags, collector_preference, retry_max_retries, retry_base_delay_ms, retry_max_delay_ms, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			INSERT INTO hosts (name, connection, endpoint, port, user, key_path, sudo, timeout, proxy_jump, tags, collector_preference, retry_max_retries, retry_base_delay_ms, retry_max_delay_ms, ssh_timeout_ms, collector_timeout_ms, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(name) DO UPDATE SET
 				connection=excluded.connection,
 				endpoint=excluded.endpoint,
@@ -96,11 +102,13 @@ func (db *DB) SeedHosts(hosts []config.Host) error {
 				proxy_jump=excluded.proxy_jump,
 				tags=excluded.tags,
 				collector_preference=excluded.collector_preference,
+				ssh_timeout_ms=excluded.ssh_timeout_ms,
+				collector_timeout_ms=excluded.collector_timeout_ms,
 				retry_max_retries=excluded.retry_max_retries,
 				retry_base_delay_ms=excluded.retry_base_delay_ms,
 				retry_max_delay_ms=excluded.retry_max_delay_ms,
 				updated_at=excluded.updated_at
-		`, h.Name, h.Connection, h.Endpoint, h.Port, h.User, h.KeyPath, h.Sudo, h.Timeout.Nanoseconds(), h.ProxyJump, string(tags), h.CollectorPreference, nullIfZero(h.RetryMaxRetries), durationMsOrNull(h.RetryBaseDelay), durationMsOrNull(h.RetryMaxDelay), time.Now().Unix(), time.Now().Unix())
+		`, h.Name, h.Connection, h.Endpoint, h.Port, h.User, h.KeyPath, h.Sudo, h.Timeout.Nanoseconds(), h.ProxyJump, string(tags), h.CollectorPreference, nullIfZero(h.RetryMaxRetries), durationMsOrNull(h.RetryBaseDelay), durationMsOrNull(h.RetryMaxDelay), durationMsOrNull(h.SSHTimeout), durationMsOrNull(h.CollectorTimeout), time.Now().Unix(), time.Now().Unix())
 		if err != nil {
 			return fmt.Errorf("failed to seed host %s: %w", h.Name, err)
 		}
@@ -111,9 +119,9 @@ func (db *DB) SeedHosts(hosts []config.Host) error {
 func (db *DB) CreateHost(ctx context.Context, h *Host) (int64, error) {
 	tags, _ := json.Marshal(h.Tags)
 	res, err := db.ExecContext(ctx, `
-		INSERT INTO hosts (name, connection, endpoint, port, user, key_path, sudo, timeout, proxy_jump, tags, collector_preference, retry_max_retries, retry_base_delay_ms, retry_max_delay_ms, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, h.Name, h.Connection, h.Endpoint, h.Port, h.User, h.KeyPath, h.Sudo, h.TimeoutRaw, h.ProxyJump, string(tags), h.CollectorPreference, nullIfZero(h.RetryMaxRetries), nullIfZero(h.RetryBaseMs), nullIfZero(h.RetryMaxMs), time.Now().Unix(), time.Now().Unix())
+		INSERT INTO hosts (name, connection, endpoint, port, user, key_path, sudo, timeout, proxy_jump, tags, collector_preference, retry_max_retries, retry_base_delay_ms, retry_max_delay_ms, ssh_timeout_ms, collector_timeout_ms, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, h.Name, h.Connection, h.Endpoint, h.Port, h.User, h.KeyPath, h.Sudo, h.TimeoutRaw, h.ProxyJump, string(tags), h.CollectorPreference, nullIfZero(h.RetryMaxRetries), nullIfZero(h.RetryBaseMs), nullIfZero(h.RetryMaxMs), nullIfZero(h.SshTimeoutMs), nullIfZero(h.CollectorTimeoutMs), time.Now().Unix(), time.Now().Unix())
 	if err != nil {
 		return 0, err
 	}
@@ -133,9 +141,9 @@ func (db *DB) UpdateHost(ctx context.Context, h *Host) error {
 	tags, _ := json.Marshal(h.Tags)
 	_, err := db.ExecContext(ctx, `
 		UPDATE hosts SET
-			name = ?, connection = ?, endpoint = ?, port = ?, user = ?, key_path = ?, sudo = ?, timeout = ?, proxy_jump = ?, tags = ?, collector_preference = ?, retry_max_retries = ?, retry_base_delay_ms = ?, retry_max_delay_ms = ?, updated_at = ?
+			name = ?, connection = ?, endpoint = ?, port = ?, user = ?, key_path = ?, sudo = ?, timeout = ?, proxy_jump = ?, tags = ?, collector_preference = ?, retry_max_retries = ?, retry_base_delay_ms = ?, retry_max_delay_ms = ?, ssh_timeout_ms = ?, collector_timeout_ms = ?, updated_at = ?
 		WHERE id = ?
-	`, h.Name, h.Connection, h.Endpoint, h.Port, h.User, h.KeyPath, h.Sudo, h.TimeoutRaw, h.ProxyJump, string(tags), h.CollectorPreference, nullIfZero(h.RetryMaxRetries), nullIfZero(h.RetryBaseMs), nullIfZero(h.RetryMaxMs), time.Now().Unix(), h.ID)
+	`, h.Name, h.Connection, h.Endpoint, h.Port, h.User, h.KeyPath, h.Sudo, h.TimeoutRaw, h.ProxyJump, string(tags), h.CollectorPreference, nullIfZero(h.RetryMaxRetries), nullIfZero(h.RetryBaseMs), nullIfZero(h.RetryMaxMs), nullIfZero(h.SshTimeoutMs), nullIfZero(h.CollectorTimeoutMs), time.Now().Unix(), h.ID)
 	return err
 }
 
