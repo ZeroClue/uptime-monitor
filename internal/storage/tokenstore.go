@@ -51,8 +51,8 @@ func scanAPITokenRow(row interface{ Scan(...any) error }, t *APIToken) error {
 	if expiresAt.Valid {
 		t.ExpiresAt = sql.NullTime{Time: time.Unix(expiresAt.Int64, 0), Valid: true}
 	}
-	if t.LastUsedAt.Valid {
-		t.LastUsedAt.Time = time.Unix(t.LastUsedAt.Time.Unix(), 0)
+	if lastUsedAt.Valid {
+		t.LastUsedAt = sql.NullTime{Time: time.Unix(lastUsedAt.Int64, 0), Valid: true}
 	}
 	if createdAt.Valid {
 		t.CreatedAt = sql.NullTime{Time: time.Unix(createdAt.Int64, 0), Valid: true}
