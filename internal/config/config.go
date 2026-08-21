@@ -51,10 +51,10 @@ type Host struct {
 	ProxyJump           string         `yaml:"proxy_jump"`
 	Tags                []string       `yaml:"tags"`
 	CollectorPreference string         `yaml:"collector_preference"`
-	RetryMaxRetries     *int64        `yaml:"retry_max_retries"`
+	RetryMaxRetries     *int64         `yaml:"retry_max_retries"`
 	RetryBaseDelay      *time.Duration `yaml:"retry_base_delay"`
 	RetryMaxDelay       *time.Duration `yaml:"retry_max_delay"`
-	SSHTimeout          *time.Duration `yaml:"ssh_timeout"`        // connection phase; default 10s
+	SSHTimeout          *time.Duration `yaml:"ssh_timeout"`       // connection phase; default 10s
 	CollectorTimeout    *time.Duration `yaml:"collector_timeout"` // whole-collect budget; default 30s
 }
 
