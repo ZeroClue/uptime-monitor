@@ -75,8 +75,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	globalChecking := "yes"
+	if cfg.SSHHostKeyPolicy == "auto" {
+		globalChecking = "accept-new"
+	}
 	sshClient := ssh.NewSSHClient(logger, &ssh.SSHTargetDefaults{
-		StrictHostKeyChecking: "yes", // per-host policy overrides via accept-new/yes
+		StrictHostKeyChecking: globalChecking, // per-host policies override
 		UserKnownHostsFile:    cfg.SSHKnownHostsFile,
 		ConnectTimeout:        10 * time.Second,
 		DefaultPort:           22,

@@ -95,7 +95,7 @@ func (c *sshClient) Exec(ctx context.Context, target *SSHTarget, cmd string) (st
 
 	auditNewKey := target.StrictHostKeyChecking == "accept-new"
 	if auditNewKey {
-		hadKey := c.knownHostsHasEntry(target.UserKnownHostsFile, target.Endpoint)
+		hadKey := c.knownHostsHasEntry(target.UserKnownHostsFile, target.Endpoint, target.Port)
 		defer func() { c.auditAcceptedKey(hadKey, target) }()
 	}
 
@@ -128,12 +128,14 @@ func (c *sshClient) Exec(ctx context.Context, target *SSHTarget, cmd string) (st
 }
 
 // knownHostsHasEntry reports whether the endpoint already has an entry.
-func (c *sshClient) knownHostsHasEntry(file, endpoint string) bool {
-	out, err := exec.Command("ssh-keygen", "-F", endpoint, "-f", file).CombinedOutput()
-	if err != nil {
-		return false
+// Non-default ports use the [host]:port form OpenSSH writes.
+func (c *sshClient) knownHostsHasEntry(file, endpoint string, port int) bool {
+	hostRef := endpoint
+	if port != 0 && port != 22 {
+		hostRef = fmt.Sprintf("[%s]:%d", endpoint, port)
 	}
-	return len(out) > 0
+	out, err := exec.Command("ssh-keygen", "-F", hostRef, "-f", file).CombinedOutput()
+	return err == nil && len(out) > 0
 }
 
 // auditAcceptedKey logs newly learned host keys for audit purposes.
@@ -141,7 +143,7 @@ func (c *sshClient) auditAcceptedKey(hadKey bool, target *SSHTarget) {
 	if hadKey {
 		return
 	}
-	if c.knownHostsHasEntry(target.UserKnownHostsFile, target.Endpoint) {
+	if c.knownHostsHasEntry(target.UserKnownHostsFile, target.Endpoint, target.Port) {
 		c.logger.Info("accepted new host key",
 			"host", target.Endpoint,
 			"port", target.Port,
