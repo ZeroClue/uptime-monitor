@@ -323,9 +323,13 @@ Then configure hosts with `connection: tailscale` and they'll route through the 
 | `GET /api/host/:id/metrics?timeRange=&resolution=` | All metrics for a host (JSON) |
 | `GET /api/host/:id/metric/:metric?timeRange=&resolution=` | Single metric series (JSON; `mem.used_pct`/`disk.used_pct` derived, net byte counters converted to rates) |
 | `GET /api/compare?metric=&hosts=&timeRange=&resolution=` | Multi-host comparison data |
-| `GET /api/alerts` | List all alerts; `POST ?action=acknowledge&id=` or `?action=silence&id=&duration=` |
+| `GET /api/alerts` | List all alerts; `?project_id=` scopes to a project, `?host_id=` to a host; `POST ?action=acknowledge&id=` or `?action=silence&id=&duration=` |
 | `GET /api/monitor` | Self-monitoring stats + collector status |
 | `GET /api/projects` | Project list with health status |
+
+### Projects
+
+Hosts and alerts can be scoped to projects. The nav bar's project switcher filters the hosts list and alerts pages via `?project_id=`; API endpoints accept the same param (or an `X-Project-ID` header). On startup the monitor auto-creates a `Default` project and assigns any unassigned hosts to it.
 
 ### Collected Metrics
 

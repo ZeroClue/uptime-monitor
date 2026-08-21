@@ -4,15 +4,17 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
 func scanProjectRow(row interface{ Scan(...any) error }, p *Project) error {
-	var hostIDsJSON sql.NullString
+	var hostIDsJSON, tagQuery sql.NullString
 	var createdAt, updatedAt int64
-	if err := row.Scan(&p.ID, &p.Name, &p.Type, &p.TagQuery, &hostIDsJSON, &p.OwnerID, &p.IsolationLevel, &p.IsDefault, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(&p.ID, &p.Name, &p.Type, &tagQuery, &hostIDsJSON, &p.OwnerID, &p.IsolationLevel, &p.IsDefault, &createdAt, &updatedAt); err != nil {
 		return err
 	}
+	p.TagQuery = tagQuery.String
 	if hostIDsJSON.Valid {
 		json.Unmarshal([]byte(hostIDsJSON.String), &p.HostIDs)
 	}
@@ -161,4 +163,29 @@ func (db *DB) GetProjectHealth(ctx context.Context, project Project, hostStatuse
 	default:
 		return "ok", nil
 	}
+}
+
+// EnsureDefaultProject creates a default project when none exist and assigns
+// all unassigned hosts to it. Idempotent; safe to call on every startup.
+func (db *DB) EnsureDefaultProject(ctx context.Context) error {
+	var count int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM projects`).Scan(&count); err != nil {
+		return fmt.Errorf("count projects: %w", err)
+	}
+	if count == 0 {
+		now := time.Now().Unix()
+		if _, err := db.ExecContext(ctx, `
+			INSERT INTO projects (name, type, tag_query, host_ids, isolation_level, is_default, created_at, updated_at)
+			VALUES ('Default', 'explicit', NULL, '[]', 'shared', 1, ?, ?)
+		`, now, now); err != nil {
+			return fmt.Errorf("create default project: %w", err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `
+		UPDATE hosts SET project_id = (SELECT id FROM projects ORDER BY is_default DESC, id LIMIT 1)
+		WHERE project_id IS NULL
+	`); err != nil {
+		return fmt.Errorf("assign unassigned hosts: %w", err)
+	}
+	return nil
 }

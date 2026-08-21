@@ -41,6 +41,7 @@ type ProjectStore interface {
 	DeleteProject(ctx context.Context, id int64) error
 	GetProjectHosts(ctx context.Context, project Project) ([]Host, error)
 	GetProjectHealth(ctx context.Context, project Project, hostStatuses map[int64]HostStatusInfo) (string, error)
+	EnsureDefaultProject(ctx context.Context) error
 }
 
 // Downsampler defines the interface for metric downsampling.

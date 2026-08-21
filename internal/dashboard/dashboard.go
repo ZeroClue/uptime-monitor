@@ -80,11 +80,11 @@ func (s *Server) Run(ctx context.Context) {
 	mux.HandleFunc("/healthz", s.handleHealthz)
 	mux.HandleFunc("/login", s.handleLogin)
 	mux.HandleFunc("/logout", s.handleLogout)
-	mux.HandleFunc("/", s.authMiddleware(s.handleIndex))
+	mux.HandleFunc("/", s.authMiddleware(s.projectMiddleware(s.handleIndex)))
 	mux.HandleFunc("/host/", s.authMiddleware(s.handleHost))
 	mux.HandleFunc("/compare", s.authMiddleware(s.handleCompare))
 	mux.HandleFunc("/projects", s.authMiddleware(s.handleProjects))
-	mux.HandleFunc("/alerts", s.authMiddleware(s.handleAlerts))
+	mux.HandleFunc("/alerts", s.authMiddleware(s.projectMiddleware(s.handleAlerts)))
 	mux.HandleFunc("/alerts/history", s.authMiddleware(s.handleAlertsHistory))
 	mux.HandleFunc("/alerts/config", s.authMiddleware(s.handleAlertsConfig))
 	mux.HandleFunc("/hosts/config", s.authMiddleware(s.handleHostsConfig))
@@ -95,7 +95,7 @@ func (s *Server) Run(ctx context.Context) {
 	mux.HandleFunc("/api/hosts/status", s.authMiddleware(s.handleAPIHostsStatus))
 	mux.HandleFunc("/api/host/", s.authMiddleware(s.handleAPIHost))
 	mux.HandleFunc("/api/compare", s.authMiddleware(s.handleAPICompare))
-	mux.HandleFunc("/api/alerts", s.authMiddleware(s.handleAPIAlerts))
+	mux.HandleFunc("/api/alerts", s.authMiddleware(s.projectMiddleware(s.handleAPIAlerts)))
 	mux.HandleFunc("/api/alert-rules", s.authMiddleware(s.handleAPIAlertRules))
 	mux.HandleFunc("/api/alert-rules/", s.authMiddleware(s.handleAPIAlertRuleByID))
 	mux.HandleFunc("/api/notification-channels", s.authMiddleware(s.handleAPINotificationChannels))
@@ -207,51 +207,48 @@ func (s *Server) isValidSession(sessionID string) bool {
 	return true
 }
 
+type contextKey int
+
+const projectIDKey contextKey = 0
+
+// projectIDFromContext returns the request's project scope, or nil for "all projects".
+func projectIDFromContext(ctx context.Context) *int64 {
+	if v, ok := ctx.Value(projectIDKey).(*int64); ok {
+		return v
+	}
+	return nil
+}
+
+// projectMiddleware resolves the project scope from X-Project-ID header,
+// project_id query param, or cookie. Absent or invalid means "all projects"
+// (backwards compatible); hosts are assigned to the default project at startup.
 func (s *Server) projectMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Extract project ID from header, query param, or cookie
-		projectIDStr := r.Header.Get("X-Project-ID")
-		if projectIDStr == "" {
-			projectIDStr = r.URL.Query().Get("project_id")
+		var projectID *int64
+		raw := r.Header.Get("X-Project-ID")
+		if raw == "" {
+			raw = r.URL.Query().Get("project_id")
 		}
-		if projectIDStr == "" {
+		if raw == "" {
 			if cookie, err := r.Cookie("project_id"); err == nil {
-				projectIDStr = cookie.Value
+				raw = cookie.Value
 			}
 		}
-
-		var projectID int64
-		if projectIDStr != "" {
-			if id, err := strconv.ParseInt(projectIDStr, 10, 64); err == nil {
-				projectID = id
+		if raw != "" {
+			id, err := strconv.ParseInt(raw, 10, 64)
+			if err != nil || id <= 0 {
+				http.Error(w, "Invalid project_id", http.StatusBadRequest)
+				return
 			}
+			projectID = &id
 		}
-
-		// If no project specified, try to get default project
-		if projectID == 0 {
-			projects, err := s.db.GetProjects(r.Context())
-			if err == nil {
-				for _, p := range projects {
-					if p.IsDefault {
-						projectID = p.ID
-						break
-					}
-				}
-				// Fallback to first project
-				if projectID == 0 && len(projects) > 0 {
-					projectID = projects[0].ID
-				}
-			}
-		}
-
-		ctx := context.WithValue(r.Context(), "project_id", projectID)
+		ctx := context.WithValue(r.Context(), projectIDKey, projectID)
 		next(w, r.WithContext(ctx))
 	}
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	projectID := r.Context().Value("project_id")
-	hosts, err := s.db.GetHostsByProject(r.Context(), projectID)
+	hosts, err := s.db.GetHostsByProject(r.Context(), projectIDFromContext(r.Context()))
 	if err != nil {
 		s.logger.Error("failed to get hosts", "error", err)
 		http.Error(w, "Internal error", http.StatusInternalServerError)
@@ -357,7 +354,7 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAlerts(w http.ResponseWriter, r *http.Request) {
-	alerts, err := s.db.GetAllAlerts(r.Context())
+	alerts, err := s.db.GetAlertsByProject(r.Context(), projectIDFromContext(r.Context()))
 	if err != nil {
 		s.logger.Error("failed to get alerts", "error", err)
 		http.Error(w, "Internal error", http.StatusInternalServerError)
@@ -367,7 +364,7 @@ func (s *Server) handleAlerts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAlertsHistory(w http.ResponseWriter, r *http.Request) {
-	alerts, err := s.db.GetAllAlerts(r.Context())
+	alerts, err := s.db.GetAlertsByProject(r.Context(), projectIDFromContext(r.Context()))
 	if err != nil {
 		s.logger.Error("failed to get alerts for history", "error", err)
 		http.Error(w, "Internal error", http.StatusInternalServerError)
@@ -1037,7 +1034,12 @@ func (s *Server) handleAPIAlerts(w http.ResponseWriter, r *http.Request) {
 	var alerts []storage.AlertWithHost
 	switch {
 	case hostID != "":
-		hostAlerts, err := s.db.GetAlerts(r.Context(), mustParseInt64(hostID))
+		id, err := strconv.ParseInt(hostID, 10, 64)
+		if err != nil || id <= 0 {
+			http.Error(w, "Invalid host_id", http.StatusBadRequest)
+			return
+		}
+		hostAlerts, err := s.db.GetAlerts(r.Context(), id)
 		if err != nil {
 			s.logger.Error("failed to get alerts", "error", err)
 			http.Error(w, "Internal error", http.StatusInternalServerError)
@@ -1046,21 +1048,20 @@ func (s *Server) handleAPIAlerts(w http.ResponseWriter, r *http.Request) {
 		for _, a := range hostAlerts {
 			alerts = append(alerts, storage.AlertWithHost{Alert: a})
 		}
-	case projectID != "":
-		id, err := strconv.ParseInt(projectID, 10, 64)
-		if err != nil {
-			http.Error(w, "Invalid project_id", http.StatusBadRequest)
-			return
-		}
-		alerts, err = s.db.GetAlertsByProject(r.Context(), &id)
-		if err != nil {
-			s.logger.Error("failed to get alerts", "error", err)
-			http.Error(w, "Internal error", http.StatusInternalServerError)
-			return
-		}
 	default:
+		var projectIDPtr *int64
+		if projectID != "" {
+			id, err := strconv.ParseInt(projectID, 10, 64)
+			if err != nil || id <= 0 {
+				http.Error(w, "Invalid project_id", http.StatusBadRequest)
+				return
+			}
+			projectIDPtr = &id
+		} else {
+			projectIDPtr = projectIDFromContext(r.Context())
+		}
 		var err error
-		alerts, err = s.db.GetAllAlerts(r.Context())
+		alerts, err = s.db.GetAlertsByProject(r.Context(), projectIDPtr)
 		if err != nil {
 			s.logger.Error("failed to get alerts", "error", err)
 			http.Error(w, "Internal error", http.StatusInternalServerError)
