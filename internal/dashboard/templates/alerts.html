@@ -11,6 +11,11 @@
         <button type="button" class="seg-btn" data-filter="critical" onclick="setFilter('critical')">Critical <span class="badge" data-badge="critical"></span></button>
         <button type="button" class="seg-btn" data-filter="down" onclick="setFilter('down')">Down <span class="badge" data-badge="down"></span></button>
     </div>
+    <div class="segmented" role="group" aria-label="Bulk actions">
+        <button type="button" class="seg-btn" onclick="bulkAction('acknowledge_all')">Ack All</button>
+        <button type="button" class="seg-btn" onclick="bulkAction('silence_all')">Silence All (1h)</button>
+        <button type="button" class="seg-btn" onclick="bulkAction('delete_all')">Delete Acked</button>
+    </div>
     <span class="last-updated mono" id="lastUpdated">—</span>
 </div>
 <div id="alertList"></div>
@@ -84,6 +89,18 @@
             b.classList.toggle('active', b.getAttribute('data-filter') === f)
         );
         render();
+    }
+
+    function bulkAction(action) {
+        const severity = filter === 'all' ? '' : filter;
+        const body = new URLSearchParams({ severity });
+        if (action === 'silence_all') body.set('duration', '1h');
+        fetch('/api/alerts?action=' + action, { method: 'POST', body })
+            .then(r => {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                fetchAlerts();
+            })
+            .catch(err => console.error('Bulk action failed:', err));
     }
 
     function fetchAlerts() {

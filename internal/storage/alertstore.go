@@ -128,6 +128,40 @@ func (db *DB) GetAllAlerts(ctx context.Context) ([]AlertWithHost, error) {
 	return alerts, nil
 }
 
+func (db *DB) AcknowledgeAllAlerts(ctx context.Context, severity string) error {
+	query := `UPDATE alerts SET acknowledged_at = ? WHERE acknowledged_at IS NULL`
+	args := []interface{}{time.Now().Unix()}
+	if severity != "" && severity != "all" {
+		query += ` AND severity = ?`
+		args = append(args, severity)
+	}
+	_, err := db.ExecContext(ctx, query, args...)
+	return err
+}
+
+func (db *DB) SilenceAllAlerts(ctx context.Context, severity string, duration time.Duration) error {
+	until := time.Now().Add(duration).Unix()
+	query := `UPDATE alerts SET silenced_until = ? WHERE acknowledged_at IS NULL AND resolved_at IS NULL`
+	args := []interface{}{until}
+	if severity != "" && severity != "all" {
+		query += ` AND severity = ?`
+		args = append(args, severity)
+	}
+	_, err := db.ExecContext(ctx, query, args...)
+	return err
+}
+
+func (db *DB) DeleteAllAlerts(ctx context.Context, severity string) error {
+	query := `DELETE FROM alerts WHERE acknowledged_at IS NOT NULL OR resolved_at IS NOT NULL`
+	args := []interface{}{}
+	if severity != "" && severity != "all" {
+		query += ` AND severity = ?`
+		args = append(args, severity)
+	}
+	_, err := db.ExecContext(ctx, query, args...)
+	return err
+}
+
 func scanAlertRuleRow(row interface{ Scan(...any) error }, r *AlertRule) error {
 	var hostID sql.NullInt64
 	var createdAt, updatedAt int64

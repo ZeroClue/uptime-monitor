@@ -772,6 +772,65 @@ func (s *Server) handleAPIAlerts(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
+		// Bulk actions
+		if action == "acknowledge_all" {
+			severity := r.URL.Query().Get("severity")
+			if err := s.db.AcknowledgeAllAlerts(r.Context(), severity); err != nil {
+				s.logger.Error("failed to acknowledge all alerts", "error", err)
+				http.Error(w, "Internal error", http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if action == "silence_all" {
+			durationStr := r.URL.Query().Get("duration")
+			duration, err := time.ParseDuration(durationStr)
+			if err != nil {
+				duration = 1 * time.Hour
+			}
+			severity := r.URL.Query().Get("severity")
+			if err := s.db.SilenceAllAlerts(r.Context(), severity, duration); err != nil {
+				s.logger.Error("failed to silence all alerts", "error", err)
+				http.Error(w, "Internal error", http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if action == "delete_all" {
+			severity := r.URL.Query().Get("severity")
+			if err := s.db.DeleteAllAlerts(r.Context(), severity); err != nil {
+				s.logger.Error("failed to delete all alerts", "error", err)
+				http.Error(w, "Internal error", http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if action == "silence" && alertID != "" {
+			durationStr := r.URL.Query().Get("duration")
+			duration, err := time.ParseDuration(durationStr)
+			if err != nil {
+				duration = 1 * time.Hour // default 1 hour
+			}
+			if err := s.db.SilenceAlert(r.Context(), mustParseInt64(alertID), duration); err != nil {
+				s.logger.Error("failed to silence alert", "error", err)
+				http.Error(w, "Internal error", http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		if action == "acknowledge" && alertID != "" {
+			if err := s.db.AcknowledgeAlert(r.Context(), mustParseInt64(alertID)); err != nil {
+				s.logger.Error("failed to acknowledge alert", "error", err)
+				http.Error(w, "Internal error", http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		http.Error(w, "Invalid action", http.StatusBadRequest)
 		return
 	}
