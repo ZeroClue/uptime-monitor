@@ -32,6 +32,8 @@ type Server struct {
 	templates    map[string]*template.Template
 	static       http.Handler
 	cookieSecure bool
+	tokenLimiter *tokenRateLimiter
+	lastUsed     *lastUsedRecorder
 }
 
 func NewServer(password string, db *storage.DB, sched *scheduler.Scheduler, logger *slog.Logger, cookieSecure bool) *Server {
@@ -42,6 +44,8 @@ func NewServer(password string, db *storage.DB, sched *scheduler.Scheduler, logg
 		logger:       logger,
 		sessions:     make(map[string]time.Time),
 		cookieSecure: cookieSecure,
+		tokenLimiter: newTokenRateLimiter(60, time.Minute),
+		lastUsed:     newLastUsedRecorder(time.Minute),
 	}
 	s.loadTemplates()
 	staticSub, err := fs.Sub(embeddedFiles, "static")
@@ -187,11 +191,14 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		cookie, err := r.Cookie("session")
-		if err != nil || !s.isValidSession(cookie.Value) {
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
+		if err == nil && s.isValidSession(cookie.Value) {
+			next(w, r)
 			return
 		}
-		next(w, r)
+		if s.enforceTokenAuth(next, w, r) {
+			return
+		}
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
 	}
 }
 
@@ -209,7 +216,10 @@ func (s *Server) isValidSession(sessionID string) bool {
 
 type contextKey int
 
-const projectIDKey contextKey = 0
+const (
+	projectIDKey contextKey = iota
+	apiTokenCtxKey
+)
 
 // projectIDFromContext returns the request's project scope, or nil for "all projects".
 func projectIDFromContext(ctx context.Context) *int64 {
@@ -222,9 +232,16 @@ func projectIDFromContext(ctx context.Context) *int64 {
 // projectMiddleware resolves the project scope from X-Project-ID header,
 // project_id query param, or cookie. Absent or invalid means "all projects"
 // (backwards compatible); hosts are assigned to the default project at startup.
+// A Bearer token scoped to a project is authoritative: request parameters
+// cannot widen its scope.
 func (s *Server) projectMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var projectID *int64
+		if tok := APITokenFromContext(r.Context()); tok != nil && tok.ProjectID != nil {
+			ctx := context.WithValue(r.Context(), projectIDKey, tok.ProjectID)
+			next(w, r.WithContext(ctx))
+			return
+		}
 		raw := r.Header.Get("X-Project-ID")
 		if raw == "" {
 			raw = r.URL.Query().Get("project_id")
@@ -241,6 +258,9 @@ func (s *Server) projectMiddleware(next http.HandlerFunc) http.HandlerFunc {
 				return
 			}
 			projectID = &id
+		} else if existing := projectIDFromContext(r.Context()); existing != nil {
+			// Preserve a scope injected upstream (e.g. API token project).
+			projectID = existing
 		}
 		ctx := context.WithValue(r.Context(), projectIDKey, projectID)
 		next(w, r.WithContext(ctx))
@@ -1050,7 +1070,9 @@ func (s *Server) handleAPIAlerts(w http.ResponseWriter, r *http.Request) {
 		}
 	default:
 		var projectIDPtr *int64
-		if projectID != "" {
+		if tok := APITokenFromContext(r.Context()); tok != nil && tok.ProjectID != nil {
+			projectIDPtr = tok.ProjectID
+		} else if projectID != "" {
 			id, err := strconv.ParseInt(projectID, 10, 64)
 			if err != nil || id <= 0 {
 				http.Error(w, "Invalid project_id", http.StatusBadRequest)
@@ -1197,12 +1219,17 @@ func (s *Server) handleAPIAPITokens(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(tokens)
 	case http.MethodPost:
-		var token storage.APIToken
-		if err := json.NewDecoder(r.Body).Decode(&token); err != nil {
+		var req apiTokenRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid JSON", http.StatusBadRequest)
 			return
 		}
-		plainToken, id, err := s.db.CreateAPIToken(r.Context(), &token)
+		token, err := req.toAPIToken()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		plainToken, id, err := s.db.CreateAPIToken(r.Context(), token)
 		if err != nil {
 			s.logger.Error("failed to create API token", "error", err)
 			http.Error(w, "Internal error", http.StatusInternalServerError)
@@ -1223,7 +1250,11 @@ func (s *Server) handleAPIAPITokens(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAPIAPITokenByID(w http.ResponseWriter, r *http.Request) {
 	idStr := strings.TrimPrefix(r.URL.Path, "/api/api-tokens/")
-	id := mustParseInt64(idStr)
+	id, err := parseInt64(idStr)
+	if err != nil || id <= 0 {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
 
 	switch r.Method {
 	case http.MethodGet:
@@ -1240,13 +1271,18 @@ func (s *Server) handleAPIAPITokenByID(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(token)
 	case http.MethodPut:
-		var token storage.APIToken
-		if err := json.NewDecoder(r.Body).Decode(&token); err != nil {
+		var req apiTokenRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Invalid JSON", http.StatusBadRequest)
 			return
 		}
+		token, err := req.toAPIToken()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		token.ID = id
-		if err := s.db.UpdateAPIToken(r.Context(), &token); err != nil {
+		if err := s.db.UpdateAPIToken(r.Context(), token); err != nil {
 			s.logger.Error("failed to update API token", "error", err)
 			http.Error(w, "Internal error", http.StatusInternalServerError)
 			return

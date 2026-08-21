@@ -135,15 +135,15 @@ type ProjectMember struct {
 }
 
 type APIToken struct {
-	ID         int64
-	Name       string
-	TokenHash  string
-	ProjectID  *int64
-	Scopes     string
-	ExpiresAt  sql.NullTime
-	LastUsedAt sql.NullTime
-	CreatedAt  sql.NullTime
-	UpdatedAt  sql.NullTime
+	ID         int64        `json:"id"`
+	Name       string       `json:"name"`
+	TokenHash  string       `json:"-"`
+	ProjectID  *int64       `json:"project_id"`
+	Scopes     string       `json:"scopes"`
+	ExpiresAt  sql.NullTime `json:"expires_at"`
+	LastUsedAt sql.NullTime `json:"last_used_at"`
+	CreatedAt  sql.NullTime `json:"created_at"`
+	UpdatedAt  sql.NullTime `json:"updated_at"`
 }
 
 type Sample struct {

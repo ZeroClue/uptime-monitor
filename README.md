@@ -331,6 +331,24 @@ Then configure hosts with `connection: tailscale` and they'll route through the 
 
 Hosts and alerts can be scoped to projects. The nav bar's project switcher filters the hosts list and alerts pages via `?project_id=`; API endpoints accept the same param (or an `X-Project-ID` header). On startup the monitor auto-creates a `Default` project and assigns any unassigned hosts to it.
 
+### API Tokens
+
+External systems authenticate with `Authorization: Bearer <token>` instead of a session cookie. Create tokens in **Alert Config → API Tokens**; the plaintext is shown once at creation.
+
+| Scope | Allows |
+|-------|--------|
+| `read` | GET endpoints (hosts, alerts, metrics, monitor) |
+| `write` | + POST/PUT/DELETE on hosts and projects |
+| `admin` | + alert rules, notification channels, API token management |
+
+Tokens may be scoped to a project: their requests see only that project's hosts and alerts, regardless of any `project_id` parameters they send. Requests are rate-limited to 60/min per token (`429` with `Retry-After`); `last_used_at` updates on use (throttled to once per minute to limit write load).
+
+```bash
+curl -H "Authorization: Bearer <token>" http://localhost:8080/api/alerts
+```
+
+Tokens created before v0.5 (weak XOR hashing) no longer authenticate; recreate them in Alert Config.
+
 ### Monitoring localhost
 
 Set `connection: local` on a host to collect metrics from the machine running the monitor itself — no SSH keys required. The collector reads `/proc` directly (`loadavg`, `meminfo`, `stat`, `diskstats`, `net/*`, `uptime`) and shells out to `df` for filesystem sizes.

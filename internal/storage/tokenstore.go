@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"time"
@@ -16,18 +17,14 @@ func generateToken() (string, string, error) {
 		return "", "", err
 	}
 	token := hex.EncodeToString(bytes)
-	hash := hashToken(token)
+	hash := HashAPIToken(token)
 	return token, hash, nil
 }
 
-func hashToken(token string) string {
-	// Simple hash for storage - in production use bcrypt or argon2
-	bytes := []byte(token)
-	hash := make([]byte, 32)
-	for i, b := range bytes {
-		hash[i%32] ^= b
-	}
-	return hex.EncodeToString(hash)
+// HashAPIToken derives the stored hash for a presented plaintext token.
+func HashAPIToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
 }
 
 func scanAPITokenRow(row interface{ Scan(...any) error }, t *APIToken) error {
@@ -42,8 +39,8 @@ func scanAPITokenRow(row interface{ Scan(...any) error }, t *APIToken) error {
 	if expiresAt.Valid {
 		t.ExpiresAt = sql.NullTime{Time: time.Unix(expiresAt.Int64, 0), Valid: true}
 	}
-	if t.LastUsedAt.Valid {
-		t.LastUsedAt.Time = time.Unix(t.LastUsedAt.Time.Unix(), 0)
+	if lastUsedAt.Valid {
+		t.LastUsedAt = sql.NullTime{Time: time.Unix(lastUsedAt.Int64, 0), Valid: true}
 	}
 	if createdAt.Valid {
 		t.CreatedAt = sql.NullTime{Time: time.Unix(createdAt.Int64, 0), Valid: true}

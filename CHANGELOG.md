@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **API token authentication** — `Authorization: Bearer <token>` now authenticates API requests: token hashes upgraded to SHA-256 (pre-upgrade XOR-hashed tokens no longer authenticate and must be recreated), scopes enforced (`read` < `write` < `admin`; config endpoints require admin), per-token rate limiting (60/min, 429 + Retry-After), `last_used_at` updated on use (throttled 1/min; also fixes a #72 bug where it was never surfaced on read), and project-scoped tokens restrict requests to their project's data even when other `project_id` params are sent. Token create/update validates name/scope/expiry.
 - **Local collector mode** — `connection: local` hosts are polled by reading `/proc` directly (loadavg, meminfo, stat incl. per-core, diskstats, net/dev, TCP/UDP tables, uptime) plus `df` for mounts; no SSH keys needed. `HOST_PROC` env (or compose mount + `pid: host`) supports monitoring the host from inside a container. See README "Monitoring localhost".
 - **Project switcher UI** — nav-bar dropdown populated from `/api/projects`; selecting a project scopes the hosts list and alerts pages via `?project_id=` (deep-linkable).
 - **Project-scoped alerts** — `GET /api/alerts?project_id=N` filters alerts to hosts in a project; the alerts and alert-history pages honor the current project from URL/header/cookie; invalid ids return 400 instead of panicking on malformed input.
