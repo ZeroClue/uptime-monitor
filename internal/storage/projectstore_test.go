@@ -234,3 +234,28 @@ func TestRulesAndChannels_ProjectScoping(t *testing.T) {
 		}
 	})
 }
+
+func TestHostKeyPolicyRoundtrip(t *testing.T) {
+	db := newTestProjectDB(t)
+	ctx := context.Background()
+
+	auto := "auto"
+	id, err := db.CreateHost(ctx, &Host{Name: "kp", Connection: "ssh", Endpoint: "10.0.0.1", Port: 22, SSHHostKeyPolicy: &auto})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := db.GetHost(ctx, id)
+	if err != nil || got.SSHHostKeyPolicy == nil || *got.SSHHostKeyPolicy != "auto" {
+		t.Fatalf("policy lost on create: %+v %v", got, err)
+	}
+
+	strict := "strict"
+	got.SSHHostKeyPolicy = &strict
+	if err := db.UpdateHost(ctx, got); err != nil {
+		t.Fatal(err)
+	}
+	got2, _ := db.GetHost(ctx, id)
+	if got2.SSHHostKeyPolicy == nil || *got2.SSHHostKeyPolicy != "strict" {
+		t.Fatalf("policy lost on update: %+v", got2)
+	}
+}

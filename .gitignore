@@ -27,6 +27,8 @@ docker-compose.override.yml
 /config/hosts.yaml
 /config/thresholds.yaml
 /config/keys/
+/config/known_hosts
+/config/known_hosts.old
 !/config/*.example
 
 # Environment files

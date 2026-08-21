@@ -56,8 +56,8 @@ func NewSSHClient(logger *slog.Logger, defaults *SSHTargetDefaults) SSHClient {
 	}
 	if defaults == nil {
 		defaults = &SSHTargetDefaults{
-			StrictHostKeyChecking: "no",
-			UserKnownHostsFile:    "/dev/null",
+			StrictHostKeyChecking: "yes",
+			UserKnownHostsFile:    "/config/known_hosts",
 			ConnectTimeout:        10 * time.Second,
 			DefaultPort:           22,
 			DefaultTimeout:        30 * time.Second,
@@ -93,6 +93,12 @@ func (c *sshClient) Exec(ctx context.Context, target *SSHTarget, cmd string) (st
 	args = append(args, "-o", "UserKnownHostsFile="+target.UserKnownHostsFile)
 	args = append(args, "-o", "LogLevel=ERROR")
 
+	auditNewKey := target.StrictHostKeyChecking == "accept-new"
+	if auditNewKey {
+		hadKey := c.knownHostsHasEntry(target.UserKnownHostsFile, target.Endpoint, target.Port)
+		defer func() { c.auditAcceptedKey(hadKey, target) }()
+	}
+
 	if target.ConnectTimeout > 0 {
 		args = append(args, "-o", fmt.Sprintf("ConnectTimeout=%d", int(target.ConnectTimeout.Seconds())))
 	}
@@ -119,4 +125,29 @@ func (c *sshClient) Exec(ctx context.Context, target *SSHTarget, cmd string) (st
 		return "", fmt.Errorf("ssh failed: %w", err)
 	}
 	return string(output), nil
+}
+
+// knownHostsHasEntry reports whether the endpoint already has an entry.
+// Non-default ports use the [host]:port form OpenSSH writes.
+func (c *sshClient) knownHostsHasEntry(file, endpoint string, port int) bool {
+	hostRef := endpoint
+	if port != 0 && port != 22 {
+		hostRef = fmt.Sprintf("[%s]:%d", endpoint, port)
+	}
+	out, err := exec.Command("ssh-keygen", "-F", hostRef, "-f", file).CombinedOutput()
+	return err == nil && len(out) > 0
+}
+
+// auditAcceptedKey logs newly learned host keys for audit purposes.
+func (c *sshClient) auditAcceptedKey(hadKey bool, target *SSHTarget) {
+	if hadKey {
+		return
+	}
+	if c.knownHostsHasEntry(target.UserKnownHostsFile, target.Endpoint, target.Port) {
+		c.logger.Info("accepted new host key",
+			"host", target.Endpoint,
+			"port", target.Port,
+			"known_hosts_file", target.UserKnownHostsFile,
+			"policy", "auto")
+	}
 }

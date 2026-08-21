@@ -61,6 +61,7 @@ type Host struct {
 	SshTimeoutMs        *int64        `json:"ssh_timeout_ms"`       // connection phase; default 10s
 	CollectorTimeoutMs  *int64        `json:"collector_timeout_ms"` // whole-collect budget; default 30s
 	ProjectID           *int64        `json:"project_id"`
+	SSHHostKeyPolicy    *string       `json:"ssh_host_key_policy"` // nil = inherit global (auto|strict|known)
 }
 
 type Alert struct {

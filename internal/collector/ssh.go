@@ -18,20 +18,31 @@ func execSSH(ctx context.Context, logger *slog.Logger, host Host, cmd string, ti
 
 // SSHTargetFromHost converts a collector.Host to an ssh.SSHTarget.
 // This is the single point of mapping between collector and SSH concerns.
+//
+// Host key policy mapping:
+//   - "" / unset → client defaults
+//   - auto       → accept-new against the managed known_hosts file
+//   - strict     → yes; fails when the key is missing or changed
+//   - known      → alias of strict (file is used as-is, never auto-added)
 func SSHTargetFromHost(host Host) *ssh.SSHTarget {
 	connectTimeout := 10 * time.Second // default; overridable per host
 	if host.SSHTimeout > 0 {
 		connectTimeout = host.SSHTimeout
 	}
-	return &ssh.SSHTarget{
-		Endpoint:              host.Endpoint,
-		Port:                  host.Port,
-		User:                  host.User,
-		KeyPath:               host.KeyPath,
-		ProxyJump:             host.ProxyJump,
-		Timeout:               host.Timeout,
-		StrictHostKeyChecking: "no",
-		UserKnownHostsFile:    "/dev/null",
-		ConnectTimeout:        connectTimeout,
+	target := &ssh.SSHTarget{
+		Endpoint:       host.Endpoint,
+		Port:           host.Port,
+		User:           host.User,
+		KeyPath:        host.KeyPath,
+		ProxyJump:      host.ProxyJump,
+		Timeout:        host.Timeout,
+		ConnectTimeout: connectTimeout,
 	}
+	switch host.SSHHostKeyPolicy {
+	case "auto":
+		target.StrictHostKeyChecking = "accept-new"
+	case "strict", "known":
+		target.StrictHostKeyChecking = "yes"
+	}
+	return target
 }
