@@ -663,11 +663,16 @@ func (p *ProcfsCollector) getNetInfo(ctx context.Context, host Host) (NetInfo, e
 	if err != nil {
 		return NetInfo{}, err
 	}
+	return parseNetDev(output), nil
+}
+
+// parseNetDev parses /proc/net/dev content; skips the loopback interface.
+func parseNetDev(output string) NetInfo {
 	lines := strings.Split(output, "\n")
-	if len(lines) < 3 {
-		return NetInfo{Interfaces: make(map[string]NetInterface)}, nil
-	}
 	interfaces := make(map[string]NetInterface)
+	if len(lines) < 3 {
+		return NetInfo{Interfaces: interfaces}
+	}
 	for _, line := range lines[2:] {
 		fields := strings.Fields(strings.TrimSpace(line))
 		if len(fields) < 17 {
@@ -691,7 +696,7 @@ func (p *ProcfsCollector) getNetInfo(ctx context.Context, host Host) (NetInfo, e
 			Errors:    rxErrors + txErrors,
 		}
 	}
-	return NetInfo{Interfaces: interfaces}, nil
+	return NetInfo{Interfaces: interfaces}
 }
 
 func (p *ProcfsCollector) execCommand(ctx context.Context, host Host, cmd string) (string, error) {

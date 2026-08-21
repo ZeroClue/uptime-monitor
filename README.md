@@ -331,6 +331,26 @@ Then configure hosts with `connection: tailscale` and they'll route through the 
 
 Hosts and alerts can be scoped to projects. The nav bar's project switcher filters the hosts list and alerts pages via `?project_id=`; API endpoints accept the same param (or an `X-Project-ID` header). On startup the monitor auto-creates a `Default` project and assigns any unassigned hosts to it.
 
+### Monitoring localhost
+
+Set `connection: local` on a host to collect metrics from the machine running the monitor itself — no SSH keys required. The collector reads `/proc` directly (`loadavg`, `meminfo`, `stat`, `diskstats`, `net/*`, `uptime`) and shells out to `df` for filesystem sizes.
+
+Inside a container `/proc` belongs to the container. To monitor the host instead, mount the host proc read-only, share the PID namespace, and point `HOST_PROC` at it:
+
+```yaml
+services:
+  monitor:
+    pid: host
+    volumes:
+      - /proc:/host/proc:ro
+    environment:
+      - HOST_PROC=/host/proc
+```
+
+Note that `df` still reports the container's filesystem view; disk sizes may differ from the host unless relevant paths are also bind-mounted.
+
+Leave `collector_preference` empty on `connection: local` hosts — forcing a remote collector (`psutil`, `procfs`, `tailscale`) would attempt SSH with no endpoint and fail every poll.
+
 ### Collected Metrics
 
 Metrics are named `<namespace>.<metric>` and auto-discovered by the host detail API — new namespaces appear without dashboard changes.
