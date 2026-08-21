@@ -14,7 +14,7 @@
 
 **Collector** — A strategy for fetching metrics from a host. Multiple collectors tried in order until one succeeds.
 
-**Connection** — How the Monitor reaches a Host: SSH (with key), Tailscale IP, or VPN endpoint.
+**Connection** — How the Monitor reaches a Host: SSH (with key), Tailscale IP, Local (procfs of the machine running the Monitor; `HOST_PROC` override for container deployments), or VPN endpoint.
 
 **Dashboard** — Web UI served by the Monitor showing host list, per-host drill-down, and metric graphs.
 
@@ -25,7 +25,7 @@
 ```yaml
 hosts:
   - name: web-01
-    connection: ssh          # ssh | tailscale
+    connection: local        # ssh | tailscale | local
     endpoint: 10.0.0.5       # IP or hostname
     port: 22                 # default 22
     user: monitor            # SSH user
@@ -48,7 +48,7 @@ hosts:
 | Raw retention | 7 days | Debugging window |
 | 1-min aggregate retention | 90 days | Operational dashboards |
 | 1-hour aggregate retention | Forever | Capacity planning |
-| Collector fallback order | 1) SSH+psutil 2) SSH+/proc+df 3) Tailscale+same 4) SNMP/node_exporter (later) | Progressive enhancement; works on any Linux host |
+| Collector fallback order | 1) Local procfs (connection=local only) 2) SSH+psutil 3) SSH+/proc+df 4) Tailscale+same 5) SNMP/node_exporter (later) | Progressive enhancement; works on any Linux host |
 | Core metric schema | cpu, mem, disk, net, uptime namespaces (see CONTEXT.md) | Covers 90% of infra monitoring needs |
 | GPU / per-process / containers | Deferred to v2 | Out of scope for MVP |
 | Real-time updates | Poll on load + manual refresh | No WebSocket complexity |
