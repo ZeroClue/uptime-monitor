@@ -82,10 +82,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Persisted log level override beats the LOG_LEVEL env default.
-	if persisted, err := db.GetSetting(ctx, "log_level"); err == nil && persisted != "" {
-		logLevelVar.Set(parseLogLevel(persisted))
-		slog.Info("applied persisted log level", "level", persisted)
+	// Persisted log level override beats the LOG_LEVEL env default. Log the
+	// intent before applying so a raised level cannot silence its own note.
+	persistedLevel, hasOverride, err := dashboard.PersistedLogLevel(ctx, db)
+	switch {
+	case err != nil:
+		slog.Warn("failed to read persisted log level", "error", err)
+	case hasOverride:
+		slog.Info("applying persisted log level", "level", persistedLevel.String())
+		logLevelVar.Set(persistedLevel)
 	}
 
 	if err := db.EnsureDefaultProject(ctx); err != nil {
@@ -138,14 +143,8 @@ func main() {
 }
 
 func parseLogLevel(level string) slog.Level {
-	switch level {
-	case "debug":
-		return slog.LevelDebug
-	case "warn", "warning":
-		return slog.LevelWarn
-	case "error":
-		return slog.LevelError
-	default:
-		return slog.LevelInfo
+	if l, ok := dashboard.ParseLevel(level); ok {
+		return l
 	}
+	return slog.LevelInfo
 }

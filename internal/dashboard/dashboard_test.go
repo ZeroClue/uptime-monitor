@@ -659,3 +659,45 @@ func TestAPISettingsLogging(t *testing.T) {
 		t.Errorf("get after put: %+v", out)
 	}
 }
+
+func TestPersistedLogLevel(t *testing.T) {
+	s := newTestServer(t)
+	ctx := context.Background()
+
+	// No override -> not applied.
+	lv, ok, err := PersistedLogLevel(ctx, s.db)
+	if err != nil || ok {
+		t.Fatalf("unset: ok=%v err=%v", ok, err)
+	}
+
+	// Override applies and parses.
+	if err := s.db.SetSetting(ctx, "log_level", "debug"); err != nil {
+		t.Fatal(err)
+	}
+	lv, ok, err = PersistedLogLevel(ctx, s.db)
+	if err != nil || !ok || lv != slog.LevelDebug {
+		t.Fatalf("debug: lv=%v ok=%v err=%v", lv, ok, err)
+	}
+
+	// Corrupt persisted value surfaces as an error rather than silently
+	// keeping defaults.
+	if err := s.db.SetSetting(ctx, "log_level", "verbose"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := PersistedLogLevel(ctx, s.db); err == nil {
+		t.Error("invalid persisted level must error")
+	}
+}
+
+func TestAPISettingsLogging_RequiresAuth(t *testing.T) {
+	s := newTestServer(t)
+	handler := s.authMiddleware(s.handleAPISettingsLogging)
+
+	for _, method := range []string{http.MethodGet, http.MethodPut} {
+		rec := httptest.NewRecorder()
+		handler(rec, httptest.NewRequest(method, "/api/settings/logging", nil))
+		if rec.Code == http.StatusOK || rec.Code == http.StatusNoContent {
+			t.Errorf("%s without auth leaked through: %d", method, rec.Code)
+		}
+	}
+}

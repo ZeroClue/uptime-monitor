@@ -756,6 +756,41 @@ func (s *Server) handleAPIRemoteWrite(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ParseLevel maps a textual level onto slog.Level. Accepted: debug, info,
+// warn/warning, error (case-insensitive).
+func ParseLevel(s string) (slog.Level, bool) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "debug":
+		return slog.LevelDebug, true
+	case "info":
+		return slog.LevelInfo, true
+	case "warn", "warning":
+		return slog.LevelWarn, true
+	case "error":
+		return slog.LevelError, true
+	default:
+		return slog.LevelInfo, false
+	}
+}
+
+// PersistedLogLevel reads the stored log-level override, if any. The second
+// return reports whether an override exists; callers log intent BEFORE
+// applying so a raised level cannot silence its own confirmation.
+func PersistedLogLevel(ctx context.Context, db *storage.DB) (slog.Level, bool, error) {
+	v, err := db.GetSetting(ctx, "log_level")
+	if err != nil {
+		return slog.LevelInfo, false, err
+	}
+	if v == "" {
+		return slog.LevelInfo, false, nil
+	}
+	level, ok := ParseLevel(v)
+	if !ok {
+		return slog.LevelInfo, false, fmt.Errorf("invalid persisted log level %q", v)
+	}
+	return level, true, nil
+}
+
 // handleAPISettingsLogging reads and adjusts the runtime log level.
 // GET returns the effective level and any persisted override; PUT applies a
 // new level immediately via the shared LevelVar and persists it so the
@@ -763,7 +798,11 @@ func (s *Server) handleAPIRemoteWrite(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAPISettingsLogging(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		persisted, _ := s.db.GetSetting(r.Context(), "log_level")
+		persisted, err := s.db.GetSetting(r.Context(), "log_level")
+		if err != nil {
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{
 			"level":     strings.ToLower(s.logLevel.Level().String()),
@@ -777,13 +816,12 @@ func (s *Server) handleAPISettingsLogging(w http.ResponseWriter, r *http.Request
 			http.Error(w, "Invalid JSON", http.StatusBadRequest)
 			return
 		}
-		switch req.Level {
-		case "debug", "info", "warn", "error":
-		default:
+		level, ok := ParseLevel(req.Level)
+		if !ok {
 			http.Error(w, "level must be debug, info, warn or error", http.StatusBadRequest)
 			return
 		}
-		s.logLevel.Set(parseLevelString(req.Level))
+		s.logLevel.Set(level)
 		if err := s.db.SetSetting(r.Context(), "log_level", req.Level); err != nil {
 			s.logger.Error("failed to persist log level", "error", err)
 			http.Error(w, "Internal error", http.StatusInternalServerError)
@@ -793,19 +831,6 @@ func (s *Server) handleAPISettingsLogging(w http.ResponseWriter, r *http.Request
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-	}
-}
-
-func parseLevelString(s string) slog.Level {
-	switch s {
-	case "debug":
-		return slog.LevelDebug
-	case "warn":
-		return slog.LevelWarn
-	case "error":
-		return slog.LevelError
-	default:
-		return slog.LevelInfo
 	}
 }
 

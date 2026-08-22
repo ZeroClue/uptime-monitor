@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **SNMP collector** — `connection: snmp` hosts are polled via gosnmp over SNMP v2c (community) or v3 (noAuthNoPriv/authNoPriv/authPriv with MD5/SHA* auth and DES/AES* privacy). Maps IF-MIB interface counters and oper status, HOST-RESOURCES-MIB CPU/memory/disk, UCD-SNMP-MIB load onto `snmp.iface.*`, `snmp.cpu.*`, `snmp.mem.*`, `snmp.disk.*`, `snmp.load.*`; extra OIDs export as `snmp.custom.<metric>`. Host form gains an SNMP section (version/community/v3 params/extra OIDs).
+- **Custom script collector** — collector type `custom` runs user-defined commands over SSH (`{{.Host}}`/`{{.Port}}` templates) and parses stdout as a JSON array of `{metric,value,timestamp}`, CSV lines, or a plain number into `custom.<script_name>.*`. 1 MiB output + 1000-sample caps. Host modal gains a highlighted editor with a Test Run button backed by `POST /api/hosts/:id/scripts/test` (saved config or draft overrides, nothing persisted).
+- **Prometheus remote write** — background exporter streams all samples to Prometheus/Mimir/Thanos/Grafana Cloud: snappy-compressed protobuf v1 written in pure Go (no new deps), basic/bearer auth, bounded drop-oldest queue, exponential-backoff retries, batch size/timeout configurable. Global target configured under Alert Configuration -> Remote Write; unauthenticated `/metrics` exposes exporter health (sent/failed/dropped counters, queue depth).
+- **Localhost bootstrap host** — fresh installs auto-seed a `localhost` self-monitoring host (`connection: local`) when the hosts table is empty after yaml seeding; deletion sticks.
+- **Dynamic log level** — `PUT /api/settings/logging` changes the level at runtime (`debug|info|warn|error`); persisted in a new generic `app_settings` KV table so the override survives restarts (persisted beats `LOG_LEVEL` env on boot).
 - **Connectivity health surfacing** — `/api/hosts/status` gains `reachable`, `last_poll`, `collector`, `latency_ms`, `last_error`; scheduler tracks last-failure time and per-poll latency; host list badges get detail tooltips; host detail page shows a reachability badge with tooltip; monitor collector-health table gains Attempts and Latency columns.
 - **SSH host key policy** — `ssh_host_key_policy` (global + per-host): `auto` accepts and records new keys while failing on changes (`accept-new`), `strict` (new default) requires pre-seeded known_hosts, `known` uses the file as-is. Managed file at `/config/known_hosts` (`ssh_known_hosts_file`); new/changed keys are audit-logged. Replaces hardcoded `StrictHostKeyChecking=no` + `/dev/null`, which silently trusted all host keys.
 - **Project management UI** — `/projects/config` page (nav: Project Config) for creating/editing/deleting projects (name, type, tag query, default flag). Host form gains a project dropdown defaulting to the active project; host list shows a Project column when more than one project exists.
@@ -73,6 +78,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Collectors (`PsutilCollector`, `ProcfsCollector`, `TailscaleCollector`) use functional options for `SSHClient` injection
   - Shared `SSHClient` created in `main.go` and injected into all collectors
   - Backward-compatible `execSSH` wrapper in `collector/ssh.go`
+
+### Fixed
+- **Docker Compose healthcheck** — checked `curl`, which the runtime image does not ship; every check failed with exec-not-found and Docker reported healthy instances as unhealthy indefinitely. Now uses busybox `wget`.
+- **hosts-table SQL drift** — the column list was repeated positionally across six read/write sites; all statements and row scans now derive from one ordered field spec, with full-field roundtrip tests that fail loudly on misordered bindings.
 
 ### Fixed
 - **Config-table HTML escaping** — admin-supplied names/tag queries/config JSON are escaped before innerHTML interpolation across projects/alerts/hosts config pages.
