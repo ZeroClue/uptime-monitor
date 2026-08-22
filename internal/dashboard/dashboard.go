@@ -567,6 +567,20 @@ func (s *Server) handleAPIProjectByID(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(project)
 	case http.MethodDelete:
+		project, err := s.db.GetProject(r.Context(), id)
+		if err != nil {
+			s.logger.Error("failed to get project", "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		if project == nil {
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
+		if project.IsDefault {
+			http.Error(w, "cannot delete the default project; promote another project first", http.StatusBadRequest)
+			return
+		}
 		if err := s.db.DeleteProject(r.Context(), id); err != nil {
 			s.logger.Error("failed to delete project", "error", err)
 			http.Error(w, "Internal error", http.StatusInternalServerError)

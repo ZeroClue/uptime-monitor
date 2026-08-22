@@ -57,6 +57,12 @@
 <script>
     let projects = [];
 
+    function escapeHtml(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     async function apiGet(path) {
         const r = await fetch(path, { headers: { 'Accept': 'application/json' } });
         if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -84,9 +90,9 @@
         const tbody = document.getElementById('projectsBody');
         tbody.innerHTML = projects.map(p => `
             <tr>
-                <td>${p.name}${p.is_default ? ' <span class="tag">default</span>' : ''}</td>
+                <td>${escapeHtml(p.name)}${p.is_default ? ' <span class="tag">default</span>' : ''}</td>
                 <td>${p.type}</td>
-                <td class="mono">${p.tag_query || '—'}</td>
+                <td class="mono">${escapeHtml(p.tag_query || '')}</td>
                 <td>${p.is_default ? '<span class="status ok">YES</span>' : '<span class="status down">NO</span>'}</td>
                 <td>
                     <button class="btn-sm" onclick="editProject(${p.id})">Edit</button>

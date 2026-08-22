@@ -66,11 +66,25 @@ func (db *DB) CreateProject(ctx context.Context, project *Project) (int64, error
 		isDefault = 1
 	}
 
-	res, err := db.ExecContext(ctx, `
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	res, err := tx.ExecContext(ctx, `
 		INSERT INTO projects (name, type, tag_query, host_ids, owner_id, isolation_level, is_default, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, project.Name, project.Type, project.TagQuery, hostIDsJSON, project.OwnerID, project.IsolationLevel, isDefault, now, now)
 	if err != nil {
+		return 0, err
+	}
+	if isDefault == 1 {
+		if _, err := tx.ExecContext(ctx, `UPDATE projects SET is_default = 0 WHERE id != last_insert_rowid()`); err != nil {
+			return 0, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
 	return res.LastInsertId()
@@ -90,12 +104,24 @@ func (db *DB) UpdateProject(ctx context.Context, project *Project) error {
 		isDefault = 1
 	}
 
-	_, err := db.ExecContext(ctx, `
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Exactly-one-default invariant: promoting this project demotes others.
+	if _, err := tx.ExecContext(ctx, `UPDATE projects SET is_default = 0 WHERE is_default = 1 AND id != ?`, project.ID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
 		UPDATE projects SET
 			name = ?, type = ?, tag_query = ?, host_ids = ?, owner_id = ?, isolation_level = ?, is_default = ?, updated_at = ?
 		WHERE id = ?
-	`, project.Name, project.Type, project.TagQuery, hostIDsJSON, project.OwnerID, project.IsolationLevel, isDefault, now, project.ID)
-	return err
+	`, project.Name, project.Type, project.TagQuery, hostIDsJSON, project.OwnerID, project.IsolationLevel, isDefault, now, project.ID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (db *DB) DeleteProject(ctx context.Context, id int64) error {
