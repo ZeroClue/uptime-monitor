@@ -151,6 +151,20 @@ func (db *DB) Migrate() error {
 	)`,
 		`CREATE INDEX IF NOT EXISTS idx_api_tokens_token_hash ON api_tokens(token_hash)`,
 		`CREATE INDEX IF NOT EXISTS idx_api_tokens_project_id ON api_tokens(project_id)`,
+		`CREATE TABLE IF NOT EXISTS remote_write_config (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		enabled BOOLEAN NOT NULL DEFAULT FALSE,
+		url TEXT NOT NULL DEFAULT '',
+		auth_type TEXT NOT NULL DEFAULT '',
+		username TEXT NOT NULL DEFAULT '',
+		password TEXT NOT NULL DEFAULT '',
+		bearer_token TEXT NOT NULL DEFAULT '',
+		extra_labels TEXT NOT NULL DEFAULT '{}',
+		batch_size INTEGER NOT NULL DEFAULT 500,
+		timeout_ms INTEGER NOT NULL DEFAULT 10000,
+		created_at INTEGER NOT NULL,
+		updated_at INTEGER NOT NULL
+	)`,
 	}
 
 	for _, q := range queries {

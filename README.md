@@ -66,6 +66,7 @@ open http://localhost:8080
 - **Pull model** — Monitor initiates connections; no agent required on targets
 - **Collector fallback chain** — psutil → `/proc`+`df` → Tailscale → Custom scripts (works on any Linux host)
 - **Custom script collector** — run user-defined commands over SSH; stdout parsed as a JSON array of `{metric, value, timestamp}`, CSV lines `metric,value[,unix_ts]`, or a plain number, namespaced as `custom.<script_name>.*` (1 MiB output cap, 1000-sample cap); configured per host in the dashboard with an editor and Test Run button
+- **Prometheus remote write** — optional background exporter streams all samples to Prometheus/Mimir/Thanos/Grafana Cloud (snappy-compressed protobuf, basic/bearer auth, bounded drop-oldest queue, exponential backoff retry); configure under Alert Configuration → Remote Write; scrape `/metrics` for exporter health
 - **Single binary** — ~10MB static Go binary, runs in distroless/scratch container
 - **Embedded SQLite** — Zero external dependencies, WAL mode for concurrency
 - **Domain stores** — 6 focused storage modules with explicit interfaces

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/ZeroClue/uptime-monitor/internal/collector"
+	"github.com/ZeroClue/uptime-monitor/internal/remotewrite"
 	"github.com/ZeroClue/uptime-monitor/internal/scheduler"
 	"github.com/ZeroClue/uptime-monitor/internal/ssh"
 	"github.com/ZeroClue/uptime-monitor/internal/storage"
@@ -40,9 +41,19 @@ type Server struct {
 	tokenLimiter *tokenRateLimiter
 	lastUsed     *lastUsedRecorder
 	scriptRunner collector.Collector // nil = real custom-script runner; tests inject a fake
+	exporter     *remotewrite.Exporter
 }
 
-func NewServer(password string, db *storage.DB, sched *scheduler.Scheduler, logger *slog.Logger, cookieSecure bool) *Server {
+// ServerOption customizes the dashboard at construction.
+type ServerOption func(*Server)
+
+// WithExporter attaches the remote write exporter for /metrics and the
+// settings API.
+func WithExporter(e *remotewrite.Exporter) ServerOption {
+	return func(s *Server) { s.exporter = e }
+}
+
+func NewServer(password string, db *storage.DB, sched *scheduler.Scheduler, logger *slog.Logger, cookieSecure bool, opts ...ServerOption) *Server {
 	s := &Server{
 		password:     password,
 		db:           db,
@@ -52,6 +63,9 @@ func NewServer(password string, db *storage.DB, sched *scheduler.Scheduler, logg
 		cookieSecure: cookieSecure,
 		tokenLimiter: newTokenRateLimiter(60, time.Minute),
 		lastUsed:     newLastUsedRecorder(time.Minute),
+	}
+	for _, opt := range opts {
+		opt(s)
 	}
 	s.loadTemplates()
 	staticSub, err := fs.Sub(embeddedFiles, "static")
@@ -88,6 +102,7 @@ func (s *Server) loadTemplates() {
 func (s *Server) Run(ctx context.Context) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", s.handleHealthz)
+	mux.HandleFunc("/metrics", s.handleMetrics)
 	mux.HandleFunc("/login", s.handleLogin)
 	mux.HandleFunc("/logout", s.handleLogout)
 	mux.HandleFunc("/", s.authMiddleware(s.projectMiddleware(s.handleIndex)))
@@ -115,6 +130,7 @@ func (s *Server) Run(ctx context.Context) {
 	mux.HandleFunc("/api/api-tokens/", s.authMiddleware(s.handleAPIAPITokenByID))
 	mux.HandleFunc("/api/projects", s.authMiddleware(s.handleAPIProjects))
 	mux.HandleFunc("/api/projects/", s.authMiddleware(s.handleAPIProjectByID))
+	mux.HandleFunc("/api/settings/remotewrite", s.authMiddleware(s.handleAPIRemoteWrite))
 	mux.HandleFunc("/api/monitor", s.authMiddleware(s.handleAPIMonitor))
 	if s.static != nil {
 		mux.Handle("/static/", s.static)
@@ -637,6 +653,98 @@ func (s *Server) handleAPIHostsGet(w http.ResponseWriter, r *http.Request) {
 	// table and edit modal (including script fields) read every column.
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(hosts)
+}
+
+// handleMetrics serves remote write health in Prometheus text exposition.
+// Unauthenticated like /healthz so Prometheus can scrape it.
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	var m remotewrite.Metrics
+	if s.exporter != nil {
+		m = s.exporter.Snapshot()
+	}
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	io.WriteString(w, remotewrite.RenderMetrics(m))
+}
+
+// handleAPIRemoteWrite returns the global remote write config, or defaults
+// when never configured.
+func (s *Server) handleAPIRemoteWriteGet(w http.ResponseWriter, r *http.Request) {
+	cfg := s.loadRemoteWriteConfig(r)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(cfg)
+}
+
+func (s *Server) loadRemoteWriteConfig(r *http.Request) *storage.RemoteWriteConfig {
+	cfg, err := s.db.GetRemoteWriteConfig(r.Context())
+	if err == nil && cfg != nil {
+		return cfg
+	}
+	return &storage.RemoteWriteConfig{
+		BatchSize:   500,
+		TimeoutMs:   10000,
+		ExtraLabels: map[string]string{},
+	}
+}
+
+// handleAPIRemoteWritePut creates-or-updates the global remote write config.
+func (s *Server) handleAPIRemoteWritePut(w http.ResponseWriter, r *http.Request) {
+	var cfg storage.RemoteWriteConfig
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if cfg.Enabled {
+		if !strings.HasPrefix(cfg.URL, "http://") && !strings.HasPrefix(cfg.URL, "https://") {
+			http.Error(w, "url must be http(s)", http.StatusBadRequest)
+			return
+		}
+		switch cfg.AuthType {
+		case "", "basic", "bearer":
+		default:
+			http.Error(w, "auth_type must be basic or bearer", http.StatusBadRequest)
+			return
+		}
+		if cfg.AuthType == "basic" && cfg.Username == "" {
+			http.Error(w, "username required for basic auth", http.StatusBadRequest)
+			return
+		}
+	}
+	if cfg.ExtraLabels == nil {
+		cfg.ExtraLabels = map[string]string{}
+	}
+
+	existing, _ := s.db.GetRemoteWriteConfig(r.Context())
+	if existing == nil {
+		id, err := s.db.CreateRemoteWriteConfig(r.Context(), &cfg)
+		if err != nil {
+			s.logger.Error("failed to create remote write config", "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		cfg.ID = id
+	} else {
+		cfg.ID = existing.ID
+		cfg.CreatedAt = existing.CreatedAt
+		if err := s.db.UpdateRemoteWriteConfig(r.Context(), &cfg); err != nil {
+			s.logger.Error("failed to update remote write config", "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+	}
+	s.logger.Info("remote write config saved", "enabled", cfg.Enabled)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(&cfg)
+}
+
+func (s *Server) handleAPIRemoteWrite(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.handleAPIRemoteWriteGet(w, r)
+	case http.MethodPut:
+		s.handleAPIRemoteWritePut(w, r)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 func (s *Server) handleAPIHostsPost(w http.ResponseWriter, r *http.Request) {

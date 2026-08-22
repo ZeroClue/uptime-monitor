@@ -14,6 +14,7 @@ import (
 	"github.com/ZeroClue/uptime-monitor/internal/collector"
 	"github.com/ZeroClue/uptime-monitor/internal/config"
 	"github.com/ZeroClue/uptime-monitor/internal/dashboard"
+	"github.com/ZeroClue/uptime-monitor/internal/remotewrite"
 	"github.com/ZeroClue/uptime-monitor/internal/scheduler"
 	"github.com/ZeroClue/uptime-monitor/internal/ssh"
 	"github.com/ZeroClue/uptime-monitor/internal/storage"
@@ -96,6 +97,9 @@ func main() {
 	)
 
 	sched := scheduler.NewWithRetry(cfg.PollInterval, db, collectorChain, logger, cfg.Retry)
+	rwExporter := remotewrite.NewExporter(db, logger)
+	sched.SetRemoteWriteSink(rwExporter)
+	go rwExporter.Run(ctx)
 	go sched.Run(ctx)
 
 	alertEngine := alerting.NewEngine(db, sched, logger)
@@ -106,7 +110,8 @@ func main() {
 	go alertEngine.Run(ctx)
 
 	cookieSecure := os.Getenv("COOKIE_SECURE") == "true"
-	dashboardServer := dashboard.NewServer(cfg.DashboardPassword, db, sched, logger, cookieSecure)
+	dashboardServer := dashboard.NewServer(cfg.DashboardPassword, db, sched, logger, cookieSecure,
+		dashboard.WithExporter(rwExporter))
 	go dashboardServer.Run(ctx)
 
 	<-ctx.Done()

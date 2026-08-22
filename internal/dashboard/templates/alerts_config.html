@@ -8,6 +8,7 @@
         <button type="button" class="seg-btn active" data-section="rules" onclick="showSection('rules')">Alert Rules</button>
         <button type="button" class="seg-btn" data-section="channels" onclick="showSection('channels')">Notification Channels</button>
         <button type="button" class="seg-btn" data-section="tokens" onclick="showSection('tokens')">API Tokens</button>
+        <button type="button" class="seg-btn" data-section="remotewrite" onclick="showSection('remotewrite')">Remote Write</button>
     </div>
 </div>
 
@@ -66,6 +67,64 @@
         </thead>
         <tbody id="tokensBody"></tbody>
     </table>
+</div>
+
+<div id="remotewriteSection" hidden>
+    <form id="remoteWriteForm" style="max-width: 640px;">
+        <div class="form-group">
+            <label class="checkbox-label">
+                <input type="checkbox" name="enabled" id="rwEnabled"> Enabled — export all samples to a Prometheus remote write endpoint
+            </label>
+        </div>
+        <div class="form-group">
+            <label for="rwUrl">URL</label>
+            <input type="text" name="url" id="rwUrl" placeholder="https://mimir.example.com/api/v1/push">
+            <small class="help">Prometheus, Thanos, Cortex, Mimir or Grafana Cloud remote-write endpoint.</small>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="rwAuthType">Authentication</label>
+                <select name="auth_type" id="rwAuthType" onchange="toggleRwAuth()">
+                    <option value="">None</option>
+                    <option value="basic">Basic (user + password)</option>
+                    <option value="bearer">Bearer token</option>
+                </select>
+            </div>
+        </div>
+        <div class="form-row" id="rwBasicRow" hidden>
+            <div class="form-group">
+                <label for="rwUsername">Username</label>
+                <input type="text" name="username" id="rwUsername" autocomplete="off">
+            </div>
+            <div class="form-group">
+                <label for="rwPassword">Password</label>
+                <input type="password" name="password" id="rwPassword" autocomplete="new-password">
+            </div>
+        </div>
+        <div class="form-group" id="rwBearerRow" hidden>
+            <label for="rwBearerToken">Bearer Token</label>
+            <input type="password" name="bearer_token" id="rwBearerToken" autocomplete="new-password">
+        </div>
+        <div class="form-group">
+            <label for="rwLabels">Extra Labels (one key=value per line)</label>
+            <textarea name="extra_labels" id="rwLabels" rows="3" placeholder="env=prod&#10;region=eu-1"></textarea>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="rwBatchSize">Batch Size</label>
+                <input type="number" name="batch_size" id="rwBatchSize" min="1" max="10000" value="500">
+            </div>
+            <div class="form-group">
+                <label for="rwTimeoutMs">Timeout (ms)</label>
+                <input type="number" name="timeout_ms" id="rwTimeoutMs" min="1000" step="500" value="10000">
+            </div>
+        </div>
+        <div class="modal-actions">
+            <span id="rwStatus" class="test-status"></span>
+            <button type="submit" class="btn-primary">Save</button>
+        </div>
+    </form>
+    <p class="help" style="margin-top: 0.75rem;">Self-monitoring: scrape <code>/metrics</code> for queue depth, sent/failed/dropped counters. Samples buffer in memory and the oldest are dropped when the queue is full.</p>
 </div>
 
 <!-- Rule Modal -->
@@ -223,7 +282,68 @@
         document.querySelectorAll('.seg-btn[data-section]').forEach(b =>
             b.classList.toggle('active', b.getAttribute('data-section') === section)
         );
+        if (section === 'remotewrite') loadRemoteWrite();
     }
+
+    // Remote write
+
+    function toggleRwAuth() {
+        const t = document.getElementById('rwAuthType').value;
+        document.getElementById('rwBasicRow').hidden = t !== 'basic';
+        document.getElementById('rwBearerRow').hidden = t !== 'bearer';
+    }
+
+    async function loadRemoteWrite() {
+        try {
+            const cfg = await apiGet('/api/settings/remotewrite');
+            document.getElementById('rwEnabled').checked = cfg.enabled;
+            document.getElementById('rwUrl').value = cfg.url || '';
+            document.getElementById('rwAuthType').value = cfg.auth_type || '';
+            document.getElementById('rwUsername').value = cfg.username || '';
+            document.getElementById('rwPassword').value = cfg.password || '';
+            document.getElementById('rwBearerToken').value = cfg.bearer_token || '';
+            document.getElementById('rwLabels').value = Object.entries(cfg.extra_labels || {})
+                .map(([k, v]) => k + '=' + v).join('\n');
+            document.getElementById('rwBatchSize').value = cfg.batch_size || 500;
+            document.getElementById('rwTimeoutMs').value = cfg.timeout_ms || 10000;
+            toggleRwAuth();
+        } catch (err) {
+            console.error('failed to load remote write config:', err);
+        }
+    }
+
+    async function saveRemoteWrite(e) {
+        e.preventDefault();
+        const form = e.target;
+        const extra = {};
+        form.extra_labels.value.split('\n').forEach(line => {
+            const idx = line.indexOf('=');
+            if (idx > 0) {
+                const k = line.slice(0, idx).trim(), v = line.slice(idx + 1).trim();
+                if (k && v) extra[k] = v;
+            }
+        });
+        const data = {
+            enabled: form.enabled.checked,
+            url: form.url.value.trim(),
+            auth_type: form.auth_type.value,
+            username: form.username.value,
+            password: form.password.value,
+            bearer_token: form.bearer_token.value,
+            extra_labels: extra,
+            batch_size: parseInt(form.batch_size.value, 10),
+            timeout_ms: parseInt(form.timeout_ms.value, 10),
+        };
+        try {
+            await apiPut('/api/settings/remotewrite', data);
+            document.getElementById('rwStatus').textContent = 'Saved ✓';
+            setTimeout(() => { document.getElementById('rwStatus').textContent = ''; }, 3000);
+        } catch (err) {
+            alert('Error: ' + err.message);
+        }
+    }
+
+    document.getElementById('remoteWriteForm').addEventListener('submit', saveRemoteWrite);
 
     function currentProjectId() {
         const pid = new URLSearchParams(window.location.search).get('project_id');
@@ -559,5 +679,7 @@
     .checkbox-label { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
     .modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.5rem; }
     .seg-btn[data-section], .seg-btn[data-status] { flex: 1; }
+    .help { color: var(--text-dim); font-size: 0.8rem; }
+    .test-status { margin-left: 0.5rem; font-size: 0.85rem; color: var(--ok); }
 </style>
 {{end}}
