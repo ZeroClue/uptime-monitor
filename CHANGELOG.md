@@ -75,6 +75,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Backward-compatible `execSSH` wrapper in `collector/ssh.go`
 
 ### Fixed
+- **SeedHosts no longer clobbers operational tuning** — startup upsert syncs connectivity fields only; timeouts/retries/key-policy/preference set via the API survive restarts (yaml still seeds them for brand-new hosts).
 - **Release changelog empty** — release workflow did a shallow checkout (`fetch-depth: 1`), so `git describe --tags --abbrev=0 HEAD^` failed and no release body was generated; `actions/checkout` now uses `fetch-depth: 0` (#30)
 - **Charts not rendering** — host/compare/monitor pages fetched metric keys that no longer existed; canvases now render from the JSON API on DOMContentLoaded
 - **Blank network chart** — `pickDefaultInterface` received the names array instead of the object, returning index `"0"` (no matching interface)
