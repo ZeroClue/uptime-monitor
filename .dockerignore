@@ -37,6 +37,7 @@ data/
 tailscale-state/
 
 # Repo tooling not needed for the image build
+.playwright-cli/
 .agents/
 .claude/
 docs/
