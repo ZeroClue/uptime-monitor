@@ -608,3 +608,54 @@ func TestMetricsEndpoint_ExposesCounters(t *testing.T) {
 		t.Error("queue depth metric missing")
 	}
 }
+
+func TestAPISettingsLogging(t *testing.T) {
+	s := newTestServer(t)
+
+	// Defaults before anything persisted.
+	rec := httptest.NewRecorder()
+	s.handleAPISettingsLogging(rec, httptest.NewRequest(http.MethodGet, "/api/settings/logging", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get default: %d", rec.Code)
+	}
+	var out map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out["level"] != "info" {
+		t.Errorf("default level: %q", out["level"])
+	}
+
+	// Invalid levels rejected.
+	for _, bad := range []string{"verbose", "", "TRACE"} {
+		rec = httptest.NewRecorder()
+		s.handleAPISettingsLogging(rec, httptest.NewRequest(http.MethodPut, "/api/settings/logging",
+			strings.NewReader(`{"level":"`+bad+`"}`)))
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("level %q: want 400 got %d", bad, rec.Code)
+		}
+	}
+
+	// Valid level applies immediately and persists.
+	rec = httptest.NewRecorder()
+	s.handleAPISettingsLogging(rec, httptest.NewRequest(http.MethodPut, "/api/settings/logging",
+		strings.NewReader(`{"level":"debug"}`)))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("put debug: %d %s", rec.Code, rec.Body.String())
+	}
+	if got := s.logLevel.Level(); got != slog.LevelDebug {
+		t.Errorf("runtime level not applied: %v", got)
+	}
+	if persisted, _ := s.db.GetSetting(context.Background(), "log_level"); persisted != "debug" {
+		t.Errorf("not persisted: %q", persisted)
+	}
+
+	// GET reflects the applied level.
+	rec = httptest.NewRecorder()
+	s.handleAPISettingsLogging(rec, httptest.NewRequest(http.MethodGet, "/api/settings/logging", nil))
+	out = map[string]string{}
+	json.Unmarshal(rec.Body.Bytes(), &out)
+	if out["level"] != "debug" || out["persisted"] != "debug" {
+		t.Errorf("get after put: %+v", out)
+	}
+}

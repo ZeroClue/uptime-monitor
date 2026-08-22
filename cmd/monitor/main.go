@@ -30,8 +30,12 @@ func main() {
 	dataPath := flag.String("data", "/data", "Path to data directory")
 	flag.Parse()
 
+	// Dynamic log level: LOG_LEVEL env sets the boot default; a persisted
+	// override (PUT /api/settings/logging) wins and survives restarts.
+	logLevelVar := new(slog.LevelVar)
+	logLevelVar.Set(parseLogLevel(os.Getenv("LOG_LEVEL")))
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: parseLogLevel(os.Getenv("LOG_LEVEL")),
+		Level: logLevelVar,
 	}))
 	slog.SetDefault(logger)
 
@@ -78,6 +82,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Persisted log level override beats the LOG_LEVEL env default.
+	if persisted, err := db.GetSetting(ctx, "log_level"); err == nil && persisted != "" {
+		logLevelVar.Set(parseLogLevel(persisted))
+		slog.Info("applied persisted log level", "level", persisted)
+	}
+
 	if err := db.EnsureDefaultProject(ctx); err != nil {
 		slog.Error("failed to ensure default project", "error", err)
 		os.Exit(1)
@@ -119,7 +129,8 @@ func main() {
 
 	cookieSecure := os.Getenv("COOKIE_SECURE") == "true"
 	dashboardServer := dashboard.NewServer(cfg.DashboardPassword, db, sched, logger, cookieSecure,
-		dashboard.WithExporter(rwExporter))
+		dashboard.WithExporter(rwExporter),
+		dashboard.WithLogLevelVar(logLevelVar))
 	go dashboardServer.Run(ctx)
 
 	<-ctx.Done()

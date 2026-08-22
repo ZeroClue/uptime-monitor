@@ -86,7 +86,7 @@ open http://localhost:8080
 |----------|---------|-------------|
 | `DASHBOARD_PASSWORD` | *required* | Shared password for dashboard login |
 | `POLL_INTERVAL` | `30s` | Collection interval per host |
-| `LOG_LEVEL` | `info` | Log level: debug, info, warn, error |
+| `LOG_LEVEL` | `info` | Boot log level: debug, info, warn, error. Runtime-adjustable via `PUT /api/settings/logging`; the override persists and beats this env on restart |
 | `COOKIE_SECURE` | `false` | Set `true` for HTTPS deployments |
 | `DB_PATH` | `/data/monitor.db` | SQLite database path |
 
@@ -349,6 +349,7 @@ Then configure hosts with `connection: tailscale` and they'll route through the 
 | `GET /api/projects` | Project list with health status |
 | `POST /api/hosts/:id/scripts/test` | Dry-run a custom script against saved connection details (optional JSON body overrides) |
 | `GET \| PUT /api/settings/remotewrite` | Global Prometheus remote write configuration |
+| `GET \| PUT /api/settings/logging` | Read / change the log level at runtime (`debug\|info\|warn\|error`); persisted across restarts |
 | `GET /metrics` | Remote write exporter health (Prometheus text format; unauthenticated like `/healthz`) |
 
 ### Projects

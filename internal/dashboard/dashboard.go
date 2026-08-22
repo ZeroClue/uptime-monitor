@@ -42,6 +42,7 @@ type Server struct {
 	lastUsed     *lastUsedRecorder
 	scriptRunner collector.Collector // nil = real custom-script runner; tests inject a fake
 	exporter     *remotewrite.Exporter
+	logLevel     *slog.LevelVar // dynamic log level; PUT /api/settings/logging adjusts it live
 }
 
 // ServerOption customizes the dashboard at construction.
@@ -53,6 +54,12 @@ func WithExporter(e *remotewrite.Exporter) ServerOption {
 	return func(s *Server) { s.exporter = e }
 }
 
+// WithLogLevelVar attaches the dynamic log level so the settings API can
+// adjust it at runtime; the same LevelVar backs the root logger in main.
+func WithLogLevelVar(lv *slog.LevelVar) ServerOption {
+	return func(s *Server) { s.logLevel = lv }
+}
+
 func NewServer(password string, db *storage.DB, sched *scheduler.Scheduler, logger *slog.Logger, cookieSecure bool, opts ...ServerOption) *Server {
 	s := &Server{
 		password:     password,
@@ -62,6 +69,7 @@ func NewServer(password string, db *storage.DB, sched *scheduler.Scheduler, logg
 		sessions:     make(map[string]time.Time),
 		cookieSecure: cookieSecure,
 		tokenLimiter: newTokenRateLimiter(60, time.Minute),
+		logLevel:     new(slog.LevelVar), // defaults to Info; main overrides via option
 		lastUsed:     newLastUsedRecorder(time.Minute),
 	}
 	for _, opt := range opts {
@@ -131,6 +139,7 @@ func (s *Server) Run(ctx context.Context) {
 	mux.HandleFunc("/api/projects", s.authMiddleware(s.handleAPIProjects))
 	mux.HandleFunc("/api/projects/", s.authMiddleware(s.handleAPIProjectByID))
 	mux.HandleFunc("/api/settings/remotewrite", s.authMiddleware(s.handleAPIRemoteWrite))
+	mux.HandleFunc("/api/settings/logging", s.authMiddleware(s.handleAPISettingsLogging))
 	mux.HandleFunc("/api/monitor", s.authMiddleware(s.handleAPIMonitor))
 	if s.static != nil {
 		mux.Handle("/static/", s.static)
@@ -744,6 +753,59 @@ func (s *Server) handleAPIRemoteWrite(w http.ResponseWriter, r *http.Request) {
 		s.handleAPIRemoteWritePut(w, r)
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleAPISettingsLogging reads and adjusts the runtime log level.
+// GET returns the effective level and any persisted override; PUT applies a
+// new level immediately via the shared LevelVar and persists it so the
+// choice survives restarts (persisted wins over LOG_LEVEL env on boot).
+func (s *Server) handleAPISettingsLogging(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		persisted, _ := s.db.GetSetting(r.Context(), "log_level")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"level":     strings.ToLower(s.logLevel.Level().String()),
+			"persisted": persisted,
+		})
+	case http.MethodPut:
+		var req struct {
+			Level string `json:"level"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+		switch req.Level {
+		case "debug", "info", "warn", "error":
+		default:
+			http.Error(w, "level must be debug, info, warn or error", http.StatusBadRequest)
+			return
+		}
+		s.logLevel.Set(parseLevelString(req.Level))
+		if err := s.db.SetSetting(r.Context(), "log_level", req.Level); err != nil {
+			s.logger.Error("failed to persist log level", "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		s.logger.Info("log level changed", "level", req.Level)
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func parseLevelString(s string) slog.Level {
+	switch s {
+	case "debug":
+		return slog.LevelDebug
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
 	}
 }
 

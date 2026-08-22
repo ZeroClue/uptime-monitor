@@ -151,6 +151,10 @@ func (db *DB) Migrate() error {
 	)`,
 		`CREATE INDEX IF NOT EXISTS idx_api_tokens_token_hash ON api_tokens(token_hash)`,
 		`CREATE INDEX IF NOT EXISTS idx_api_tokens_project_id ON api_tokens(project_id)`,
+		`CREATE TABLE IF NOT EXISTS app_settings (
+		key TEXT PRIMARY KEY,
+		value TEXT NOT NULL
+	)`,
 		`CREATE TABLE IF NOT EXISTS remote_write_config (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		enabled BOOLEAN NOT NULL DEFAULT FALSE,
