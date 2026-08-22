@@ -42,6 +42,7 @@ type Server struct {
 	lastUsed     *lastUsedRecorder
 	scriptRunner collector.Collector // nil = real custom-script runner; tests inject a fake
 	exporter     *remotewrite.Exporter
+	logLevel     *slog.LevelVar // dynamic log level; PUT /api/settings/logging adjusts it live
 }
 
 // ServerOption customizes the dashboard at construction.
@@ -53,6 +54,12 @@ func WithExporter(e *remotewrite.Exporter) ServerOption {
 	return func(s *Server) { s.exporter = e }
 }
 
+// WithLogLevelVar attaches the dynamic log level so the settings API can
+// adjust it at runtime; the same LevelVar backs the root logger in main.
+func WithLogLevelVar(lv *slog.LevelVar) ServerOption {
+	return func(s *Server) { s.logLevel = lv }
+}
+
 func NewServer(password string, db *storage.DB, sched *scheduler.Scheduler, logger *slog.Logger, cookieSecure bool, opts ...ServerOption) *Server {
 	s := &Server{
 		password:     password,
@@ -62,6 +69,7 @@ func NewServer(password string, db *storage.DB, sched *scheduler.Scheduler, logg
 		sessions:     make(map[string]time.Time),
 		cookieSecure: cookieSecure,
 		tokenLimiter: newTokenRateLimiter(60, time.Minute),
+		logLevel:     new(slog.LevelVar), // defaults to Info; main overrides via option
 		lastUsed:     newLastUsedRecorder(time.Minute),
 	}
 	for _, opt := range opts {
@@ -131,6 +139,7 @@ func (s *Server) Run(ctx context.Context) {
 	mux.HandleFunc("/api/projects", s.authMiddleware(s.handleAPIProjects))
 	mux.HandleFunc("/api/projects/", s.authMiddleware(s.handleAPIProjectByID))
 	mux.HandleFunc("/api/settings/remotewrite", s.authMiddleware(s.handleAPIRemoteWrite))
+	mux.HandleFunc("/api/settings/logging", s.authMiddleware(s.handleAPISettingsLogging))
 	mux.HandleFunc("/api/monitor", s.authMiddleware(s.handleAPIMonitor))
 	if s.static != nil {
 		mux.Handle("/static/", s.static)
@@ -742,6 +751,84 @@ func (s *Server) handleAPIRemoteWrite(w http.ResponseWriter, r *http.Request) {
 		s.handleAPIRemoteWriteGet(w, r)
 	case http.MethodPut:
 		s.handleAPIRemoteWritePut(w, r)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// ParseLevel maps a textual level onto slog.Level. Accepted: debug, info,
+// warn/warning, error (case-insensitive).
+func ParseLevel(s string) (slog.Level, bool) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "debug":
+		return slog.LevelDebug, true
+	case "info":
+		return slog.LevelInfo, true
+	case "warn", "warning":
+		return slog.LevelWarn, true
+	case "error":
+		return slog.LevelError, true
+	default:
+		return slog.LevelInfo, false
+	}
+}
+
+// PersistedLogLevel reads the stored log-level override, if any. The second
+// return reports whether an override exists; callers log intent BEFORE
+// applying so a raised level cannot silence its own confirmation.
+func PersistedLogLevel(ctx context.Context, db *storage.DB) (slog.Level, bool, error) {
+	v, err := db.GetSetting(ctx, "log_level")
+	if err != nil {
+		return slog.LevelInfo, false, err
+	}
+	if v == "" {
+		return slog.LevelInfo, false, nil
+	}
+	level, ok := ParseLevel(v)
+	if !ok {
+		return slog.LevelInfo, false, fmt.Errorf("invalid persisted log level %q", v)
+	}
+	return level, true, nil
+}
+
+// handleAPISettingsLogging reads and adjusts the runtime log level.
+// GET returns the effective level and any persisted override; PUT applies a
+// new level immediately via the shared LevelVar and persists it so the
+// choice survives restarts (persisted wins over LOG_LEVEL env on boot).
+func (s *Server) handleAPISettingsLogging(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		persisted, err := s.db.GetSetting(r.Context(), "log_level")
+		if err != nil {
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"level":     strings.ToLower(s.logLevel.Level().String()),
+			"persisted": persisted,
+		})
+	case http.MethodPut:
+		var req struct {
+			Level string `json:"level"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+		level, ok := ParseLevel(req.Level)
+		if !ok {
+			http.Error(w, "level must be debug, info, warn or error", http.StatusBadRequest)
+			return
+		}
+		s.logLevel.Set(level)
+		if err := s.db.SetSetting(r.Context(), "log_level", req.Level); err != nil {
+			s.logger.Error("failed to persist log level", "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
+			return
+		}
+		s.logger.Info("log level changed", "level", req.Level)
+		w.WriteHeader(http.StatusNoContent)
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}

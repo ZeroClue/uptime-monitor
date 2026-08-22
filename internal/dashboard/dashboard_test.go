@@ -608,3 +608,96 @@ func TestMetricsEndpoint_ExposesCounters(t *testing.T) {
 		t.Error("queue depth metric missing")
 	}
 }
+
+func TestAPISettingsLogging(t *testing.T) {
+	s := newTestServer(t)
+
+	// Defaults before anything persisted.
+	rec := httptest.NewRecorder()
+	s.handleAPISettingsLogging(rec, httptest.NewRequest(http.MethodGet, "/api/settings/logging", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get default: %d", rec.Code)
+	}
+	var out map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out["level"] != "info" {
+		t.Errorf("default level: %q", out["level"])
+	}
+
+	// Invalid levels rejected.
+	for _, bad := range []string{"verbose", "", "TRACE"} {
+		rec = httptest.NewRecorder()
+		s.handleAPISettingsLogging(rec, httptest.NewRequest(http.MethodPut, "/api/settings/logging",
+			strings.NewReader(`{"level":"`+bad+`"}`)))
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("level %q: want 400 got %d", bad, rec.Code)
+		}
+	}
+
+	// Valid level applies immediately and persists.
+	rec = httptest.NewRecorder()
+	s.handleAPISettingsLogging(rec, httptest.NewRequest(http.MethodPut, "/api/settings/logging",
+		strings.NewReader(`{"level":"debug"}`)))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("put debug: %d %s", rec.Code, rec.Body.String())
+	}
+	if got := s.logLevel.Level(); got != slog.LevelDebug {
+		t.Errorf("runtime level not applied: %v", got)
+	}
+	if persisted, _ := s.db.GetSetting(context.Background(), "log_level"); persisted != "debug" {
+		t.Errorf("not persisted: %q", persisted)
+	}
+
+	// GET reflects the applied level.
+	rec = httptest.NewRecorder()
+	s.handleAPISettingsLogging(rec, httptest.NewRequest(http.MethodGet, "/api/settings/logging", nil))
+	out = map[string]string{}
+	json.Unmarshal(rec.Body.Bytes(), &out)
+	if out["level"] != "debug" || out["persisted"] != "debug" {
+		t.Errorf("get after put: %+v", out)
+	}
+}
+
+func TestPersistedLogLevel(t *testing.T) {
+	s := newTestServer(t)
+	ctx := context.Background()
+
+	// No override -> not applied.
+	lv, ok, err := PersistedLogLevel(ctx, s.db)
+	if err != nil || ok {
+		t.Fatalf("unset: ok=%v err=%v", ok, err)
+	}
+
+	// Override applies and parses.
+	if err := s.db.SetSetting(ctx, "log_level", "debug"); err != nil {
+		t.Fatal(err)
+	}
+	lv, ok, err = PersistedLogLevel(ctx, s.db)
+	if err != nil || !ok || lv != slog.LevelDebug {
+		t.Fatalf("debug: lv=%v ok=%v err=%v", lv, ok, err)
+	}
+
+	// Corrupt persisted value surfaces as an error rather than silently
+	// keeping defaults.
+	if err := s.db.SetSetting(ctx, "log_level", "verbose"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := PersistedLogLevel(ctx, s.db); err == nil {
+		t.Error("invalid persisted level must error")
+	}
+}
+
+func TestAPISettingsLogging_RequiresAuth(t *testing.T) {
+	s := newTestServer(t)
+	handler := s.authMiddleware(s.handleAPISettingsLogging)
+
+	for _, method := range []string{http.MethodGet, http.MethodPut} {
+		rec := httptest.NewRecorder()
+		handler(rec, httptest.NewRequest(method, "/api/settings/logging", nil))
+		if rec.Code == http.StatusOK || rec.Code == http.StatusNoContent {
+			t.Errorf("%s without auth leaked through: %d", method, rec.Code)
+		}
+	}
+}
