@@ -62,7 +62,7 @@
 
 ---
 
-## 📋 Phase 3: Architecture & Usability (MEDIUM PRIORITY)
+## ✅ Phase 3: Architecture & Usability (MEDIUM PRIORITY) — COMPLETE
 
 > ✅ **Complete** — shipped across PRs #89–#102; epic #55 closed.
 
@@ -96,7 +96,7 @@
 
 ### Integrations
 - [ ] **Grafana datasource plugin** - query uptime-monitor as source
-- [ ] **Prometheus exporter** - /metrics endpoint
+- [x] **Prometheus exporter** - /metrics endpoint (shipped with remote write, #101)
 - [ ] **Log aggregation** - collect system logs via SSH
 - [ ] **Kubernetes integration** - service discovery
 
@@ -109,11 +109,10 @@
 
 ## 🐛 Known Issues / Tech Debt
 
-1. **SSH known_hosts** - warnings pollute command output (handled by filtering)
-2. **Disk metrics for container** - df returns 0 in container (expected)
-3. **Network interface churn** - veth interfaces appear/disappear (Docker)
-4. **Timezone handling** - timestamps stored as Unix, displayed in local time
-5. **No auth on API** - only cookie-based session (acceptable for internal tool)
+1. **Disk metrics for container** - df returns 0 in container (expected)
+2. **Network interface churn** - veth interfaces appear/disappear (Docker)
+3. **Timezone handling** - timestamps stored as Unix, displayed in local time
+4. **API auth granularity** - dashboard cookie session + scoped API tokens exist; fine-grained RBAC remains future work
 
 ---
 
