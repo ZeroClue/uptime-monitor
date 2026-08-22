@@ -23,6 +23,19 @@ type Scheduler struct {
 	hostStatuses map[int64]*HostStatus
 	stopCh       chan struct{}
 	wg           sync.WaitGroup
+
+	remoteWrite RemoteWriteSink // optional; set via SetRemoteWriteSink
+}
+
+// RemoteWriteSink receives every successful poll's samples for export
+// (implemented by remotewrite.Exporter).
+type RemoteWriteSink interface {
+	Enqueue(hostName string, samples []collector.Sample)
+}
+
+// SetRemoteWriteSink attaches the remote write exporter after construction.
+func (s *Scheduler) SetRemoteWriteSink(sink RemoteWriteSink) {
+	s.remoteWrite = sink
 }
 
 type HostStatus struct {
@@ -285,6 +298,10 @@ func (s *Scheduler) pollHost(ctx context.Context, host storage.Host) {
 	if err := s.db.SaveSamples(samples); err != nil {
 		s.logger.Error("failed to save samples", "host", host.Name, "error", err)
 		return
+	}
+
+	if s.remoteWrite != nil {
+		s.remoteWrite.Enqueue(host.Name, samples)
 	}
 
 	s.mu.Lock()

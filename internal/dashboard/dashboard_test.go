@@ -16,6 +16,7 @@ import (
 
 	"github.com/ZeroClue/uptime-monitor/internal/collector"
 	"github.com/ZeroClue/uptime-monitor/internal/config"
+	"github.com/ZeroClue/uptime-monitor/internal/remotewrite"
 	"github.com/ZeroClue/uptime-monitor/internal/scheduler"
 	"github.com/ZeroClue/uptime-monitor/internal/storage"
 )
@@ -518,5 +519,92 @@ func TestAPIHosts_RoutesScriptTestPath(t *testing.T) {
 	s.handleAPIHosts(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected script-test routing via handleAPIHosts, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAPIRemoteWrite_PutGetRoundtrip(t *testing.T) {
+	s := newTestServer(t)
+
+	// GET before first save returns defaults.
+	rec := httptest.NewRecorder()
+	s.handleAPIRemoteWrite(rec, httptest.NewRequest(http.MethodGet, "/api/settings/remotewrite", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get defaults: %d", rec.Code)
+	}
+	var cfg storage.RemoteWriteConfig
+	if err := json.Unmarshal(rec.Body.Bytes(), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.BatchSize != 500 || cfg.TimeoutMs != 10000 {
+		t.Errorf("unexpected defaults: %+v", cfg)
+	}
+
+	body := strings.NewReader(`{"enabled":true,"url":"http://mimir:8080/api/v1/write","auth_type":"bearer","bearer_token":"tok","batch_size":250,"timeout_ms":3000,"extra_labels":{"env":"prod"}}`)
+	rec = httptest.NewRecorder()
+	s.handleAPIRemoteWrite(rec, httptest.NewRequest(http.MethodPut, "/api/settings/remotewrite", body))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("put: %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	s.handleAPIRemoteWrite(rec, httptest.NewRequest(http.MethodGet, "/api/settings/remotewrite", nil))
+	cfg = storage.RemoteWriteConfig{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Enabled || cfg.URL != "http://mimir:8080/api/v1/write" || cfg.BearerToken != "tok" ||
+		cfg.BatchSize != 250 || cfg.ExtraLabels["env"] != "prod" {
+		t.Errorf("roundtrip lost data: %+v", cfg)
+	}
+
+	// Second PUT updates the same row instead of duplicating it.
+	rec = httptest.NewRecorder()
+	s.handleAPIRemoteWrite(rec, httptest.NewRequest(http.MethodPut, "/api/settings/remotewrite",
+		strings.NewReader(`{"enabled":true,"url":"https://gw:443/write","auth_type":"basic","username":"u","password":"p"}`)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("second put: %d", rec.Code)
+	}
+	rec = httptest.NewRecorder()
+	s.handleAPIRemoteWrite(rec, httptest.NewRequest(http.MethodGet, "/api/settings/remotewrite", nil))
+	cfg = storage.RemoteWriteConfig{}
+	json.Unmarshal(rec.Body.Bytes(), &cfg)
+	if cfg.URL != "https://gw:443/write" || cfg.AuthType != "basic" {
+		t.Errorf("update not applied: %+v", cfg)
+	}
+}
+
+func TestAPIRemoteWrite_Validation(t *testing.T) {
+	s := newTestServer(t)
+	cases := []string{
+		`{"enabled":true,"url":"ftp://nope"}`,
+		`{"enabled":true,"url":"http://ok","auth_type":"kerberos"}`,
+		`{"enabled":true,"url":"http://ok","auth_type":"basic"}`,
+		`{bad json}`,
+	}
+	for i, body := range cases {
+		rec := httptest.NewRecorder()
+		s.handleAPIRemoteWrite(rec, httptest.NewRequest(http.MethodPut, "/api/settings/remotewrite", strings.NewReader(body)))
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("case %d (%s): want 400 got %d", i, body, rec.Code)
+		}
+	}
+}
+
+func TestMetricsEndpoint_ExposesCounters(t *testing.T) {
+	s := newTestServer(t)
+	e := remotewrite.NewExporter(s.db, newTestLogger(t))
+	e.Snapshot() // warm
+	s.exporter = e
+
+	rec := httptest.NewRecorder()
+	s.handleMetrics(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "text/plain") {
+		t.Errorf("content type %q", ct)
+	}
+	if !strings.Contains(rec.Body.String(), "uptime_remote_write_queue_depth") {
+		t.Error("queue depth metric missing")
 	}
 }

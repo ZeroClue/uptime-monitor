@@ -77,7 +77,8 @@ hosts:
 | Project model | Tag-based + explicit projects | Ad-hoc queries + structured dashboards |
 | Tailscale mode | External (host network) by default | In-container option for v2 |
 | Config reload | Docker restart (simplest) | File watcher as enhancement |
-| Monitor observability | /healthz + dashboard monitor page | Self-metrics (Prometheus) deferred |
+| Monitor observability | /healthz + dashboard monitor page + /metrics (remote write health: sent/failed/dropped counters, queue depth) | Self-metrics beyond remote-write health deferred |
+| Remote write export | Single global target (Alert Configuration → Remote Write); snappy-compressed protobuf v1; labels `__name__`, host, project, collector, job + extras; bounded queue drops oldest; failed batches drop after retries (never requeued) | One destination covers Prometheus/Mimir/Grafana Cloud; drop-oldest bounds memory; requeueing a poison batch would wedge the pipeline |
 | Chart rendering | Fetch JSON from `/api/host/:id/metrics`, render client-side with Chart.js; live values via `/api/hosts/status`, `/api/monitor` | htmx removed; single fetch on DOMContentLoaded + interval refresh |
 | Net metrics display | Cumulative counters converted to per-second rates client-side (host) and server-side (compare) | Raw counters produce meaningless rising lines |
 | Interface picker | Defaults to eth0; veth/br/docker sorted last | Avoids chart spam on virtual interfaces |
