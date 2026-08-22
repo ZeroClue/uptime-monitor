@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -95,7 +96,10 @@ func (e *Exporter) Run(ctx context.Context) {
 	}
 }
 
-// tick reloads config and, when enabled, delivers one batch.
+// tick reloads config and, when enabled, delivers one batch. The configured
+// timeout bounds the whole delivery cycle for the batch — every send
+// attempt plus backoff sleeps share it — so one slow endpoint can never
+// stack up tick overruns.
 func (e *Exporter) tick(ctx context.Context) {
 	cfg := e.loadConfig(ctx)
 	if cfg == nil || !cfg.Enabled || cfg.URL == "" {
@@ -184,13 +188,20 @@ func (e *Exporter) flushOnce(ctx context.Context, cfg *storage.RemoteWriteConfig
 		}
 	}
 	e.failedBatches.Add(1)
-	e.queue.DroppedTotal()
 	return fmt.Errorf("dropping batch of %d samples after %d attempts: %w", len(items), e.maxAttempts, lastErr)
 }
 
 // buildRequest converts queued samples into series, grouping samples that
-// share a label set into one TimeSeries.
+// share a label set into one TimeSeries. Label sets are canonicalized by
+// sorting on name: Go map iteration is randomized, so unsorted extras would
+// split one logical series into permuted duplicates within a batch.
 func buildRequest(items []queuedSample, extra map[string]string, projectByHost map[string]string) WriteRequest {
+	extraKeys := make([]string, 0, len(extra))
+	for k := range extra {
+		extraKeys = append(extraKeys, k)
+	}
+	sort.Strings(extraKeys)
+
 	grouped := map[string][]Sample{}
 	order := []string{}
 	seriesMeta := map[string]TimeSeries{}
@@ -204,9 +215,10 @@ func buildRequest(items []queuedSample, extra map[string]string, projectByHost m
 			labels = append(labels, Label{Name: "collector", Value: it.Collector})
 		}
 		labels = append(labels, Label{Name: "job", Value: jobLabel})
-		for k, v := range extra {
-			labels = append(labels, Label{Name: k, Value: v})
+		for _, k := range extraKeys {
+			labels = append(labels, Label{Name: k, Value: extra[k]})
 		}
+		sort.Slice(labels, func(i, j int) bool { return labels[i].Name < labels[j].Name })
 
 		var sb strings.Builder
 		for _, l := range labels {

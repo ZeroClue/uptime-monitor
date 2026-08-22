@@ -295,6 +295,32 @@ func TestFlushOnce_EndToEndPayload(t *testing.T) {
 	}
 }
 
+// TestBuildRequest_ExtraLabelOrderIsDeterministic guards against Go map
+// iteration randomization splitting one logical series into permuted
+// duplicates within a single batch.
+func TestBuildRequest_ExtraLabelOrderIsDeterministic(t *testing.T) {
+	extra := map[string]string{"aa": "1", "bb": "2", "cc": "3", "dd": "4", "ee": "5", "ff": "6", "gg": "7"}
+	items := []queuedSample{
+		{HostName: "h", Metric: "m", Value: 1},
+		{HostName: "h", Metric: "m", Value: 2},
+	}
+	req := buildRequest(items, extra, nil)
+	if len(req.TimeSeries) != 1 {
+		t.Fatalf("identical series must merge into one, got %d:\n%+v",
+			len(req.TimeSeries), req.TimeSeries)
+	}
+	ts := req.TimeSeries[0]
+	if len(ts.Samples) != 2 {
+		t.Errorf("want both samples in the series, got %d", len(ts.Samples))
+	}
+	for i := 1; i < len(ts.Labels); i++ {
+		if ts.Labels[i-1].Name >= ts.Labels[i].Name {
+			t.Errorf("labels not sorted by name: %+v", ts.Labels)
+			break
+		}
+	}
+}
+
 func TestSnapshot_CountersExposed(t *testing.T) {
 	e := NewExporter(nil, discardLogger())
 	e.queue.Push(queuedSample{})

@@ -32,22 +32,14 @@ type WriteRequest struct {
 	TimeSeries []TimeSeries
 }
 
-func appendUvarint(b []byte, v uint64) []byte {
-	for v >= 0x80 {
-		b = append(b, byte(v)|0x80)
-		v >>= 7
-	}
-	return append(b, byte(v))
-}
-
 func encodeUvarintField(b []byte, field int, v uint64) []byte {
 	b = append(b, byte(field<<3)) // wire type 0
-	return appendUvarint(b, v)
+	return binary.AppendUvarint(b, v)
 }
 
 func encodeLengthDelim(b []byte, field int, payload []byte) []byte {
 	b = append(b, byte(field<<3|2))
-	b = appendUvarint(b, uint64(len(payload)))
+	b = binary.AppendUvarint(b, uint64(len(payload)))
 	return append(b, payload...)
 }
 
@@ -93,7 +85,7 @@ const snappyMaxChunkSize = 65536
 // SnappyEncode compresses src as a snappy block using literal chunks only.
 // Every Prometheus-compatible receiver decodes this; it just doesn't shrink.
 func SnappyEncode(dst, src []byte) []byte {
-	dst = appendUvarint(dst, uint64(len(src)))
+	dst = binary.AppendUvarint(dst, uint64(len(src)))
 	for len(src) > 0 {
 		chunk := src
 		if len(chunk) > snappyMaxChunkSize {

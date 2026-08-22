@@ -7,26 +7,6 @@ import (
 	"testing"
 )
 
-func TestAppendUvarint(t *testing.T) {
-	cases := []struct {
-		v    uint64
-		want []byte
-	}{
-		{0, []byte{0x00}},
-		{1, []byte{0x01}},
-		{127, []byte{0x7F}},
-		{128, []byte{0x80, 0x01}},
-		{300, []byte{0xAC, 0x02}},
-		{1779000000000, []byte{0x80, 0xFC, 0xA6, 0xA5, 0xE3, 0x33}}, // verified by decoding back
-	}
-	for _, c := range cases {
-		got := appendUvarint(nil, c.v)
-		if !bytes.Equal(got, c.want) {
-			t.Errorf("uvarint(%d): want % x got % x", c.v, c.want, got)
-		}
-	}
-}
-
 func TestEncodeLabel(t *testing.T) {
 	// Label{name: "__name__", value: "cpu.user_pct"}:
 	//   field 1 (name):  tag 0x0A len 8 "__name__"
