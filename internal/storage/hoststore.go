@@ -447,3 +447,27 @@ func (db *DB) GetHostByName(ctx context.Context, name string) (*Host, error) {
 	}
 	return &h, nil
 }
+
+// EnsureLocalHost bootstraps self-monitoring: when no host exists at all
+// (fresh install), seed one localhost entry polled by the local procfs
+// collector. Bootstrap-only by design — deleting it sticks, and existing
+// or yaml-defined setups are never touched. Call after SeedHosts.
+func (db *DB) EnsureLocalHost(ctx context.Context) error {
+	var count int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM hosts`).Scan(&count); err != nil {
+		return fmt.Errorf("count hosts: %w", err)
+	}
+	if count > 0 {
+		return nil
+	}
+	_, err := db.CreateHost(ctx, &Host{
+		Name:       "localhost",
+		Connection: "local",
+		Endpoint:   "127.0.0.1",
+		TimeoutRaw: (10 * time.Second).Nanoseconds(),
+	})
+	if err != nil {
+		return fmt.Errorf("bootstrap localhost host: %w", err)
+	}
+	return nil
+}
