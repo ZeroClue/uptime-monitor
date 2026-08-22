@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-22
+
 ### Added
 - **SNMP collector** — `connection: snmp` hosts are polled via gosnmp over SNMP v2c (community) or v3 (noAuthNoPriv/authNoPriv/authPriv with MD5/SHA* auth and DES/AES* privacy). Maps IF-MIB interface counters and oper status, HOST-RESOURCES-MIB CPU/memory/disk, UCD-SNMP-MIB load onto `snmp.iface.*`, `snmp.cpu.*`, `snmp.mem.*`, `snmp.disk.*`, `snmp.load.*`; extra OIDs export as `snmp.custom.<metric>`. Host form gains an SNMP section (version/community/v3 params/extra OIDs).
 - **Custom script collector** — collector type `custom` runs user-defined commands over SSH (`{{.Host}}`/`{{.Port}}` templates) and parses stdout as a JSON array of `{metric,value,timestamp}`, CSV lines, or a plain number into `custom.<script_name>.*`. 1 MiB output + 1000-sample caps. Host modal gains a highlighted editor with a Test Run button backed by `POST /api/hosts/:id/scripts/test` (saved config or draft overrides, nothing persisted).
@@ -111,6 +113,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Scheduler** — background downsampling (minute) and cleanup (daily) tickers
 - **Dashboard** — Chart.js client-side charts fed by the `/api/host/:id/metrics` and `/api/host/:id/metric/:metric` JSON endpoints; templates + static assets embedded via `go:embed`
 - **Design system** — Nord-inspired dark/light theme with persisted toggle, themed charts; documented in ADR-0006
+
+## [0.2.0] - 2026-08-16
+
+### Added
+- Tailscale SSH support
+- QUICKSTART.md with a 5-minute setup guide
 
 ## [0.1.0] - 2026-08-15
 
