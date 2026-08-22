@@ -202,6 +202,16 @@ func (db *DB) Migrate() error {
 		`ALTER TABLE hosts ADD COLUMN script_name TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE hosts ADD COLUMN script_command TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE hosts ADD COLUMN script_parse TEXT NOT NULL DEFAULT ''`,
+		// SNMP connection credentials (issue #61); connectivity data owned by
+		// yaml per ADR-0007, like user/key_path.
+		`ALTER TABLE hosts ADD COLUMN snmp_version TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE hosts ADD COLUMN snmp_community TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE hosts ADD COLUMN snmp_v3_user TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE hosts ADD COLUMN snmp_v3_auth_proto TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE hosts ADD COLUMN snmp_v3_auth_pass TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE hosts ADD COLUMN snmp_v3_priv_proto TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE hosts ADD COLUMN snmp_v3_priv_pass TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE hosts ADD COLUMN snmp_extra_oids TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := db.Exec(col); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return fmt.Errorf("migration failed: %w", err)

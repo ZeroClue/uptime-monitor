@@ -35,7 +35,7 @@
             </div>
             <div class="form-group">
                 <label for="hostConnection">Connection Type</label>
-                <select name="connection" id="hostConnection" required onchange="toggleConnectionFields()">
+                <select name="connection" id="hostConnection" required onchange="toggleConnectionFields(); toggleSNMPSection(this.value)">
                     <option value="ssh">SSH</option>
                     <option value="tailscale">Tailscale</option>
                     <option value="local">Local</option>
@@ -110,6 +110,64 @@
             <div class="form-group" id="proxyJumpGroup">
                 <label for="hostProxyJump">Proxy Jump</label>
                 <input type="text" name="proxy_jump" id="hostProxyJump" placeholder="user@jump-host:22">
+            </div>
+            <div id="snmpSection" hidden>
+                <h4 class="section-title">SNMP</h4>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="hostSNMPVersion">Version</label>
+                        <select name="snmp_version" id="hostSNMPVersion" onchange="toggleSNMPAuth()">
+                            <option value="2c">v2c (community)</option>
+                            <option value="3">v3 (user-based)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="hostSNMPCommunity">Community</label>
+                        <input type="password" name="snmp_community" id="hostSNMPCommunity" placeholder="public" autocomplete="off">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="hostSNMPv3User">v3 Username</label>
+                        <input type="text" name="snmp_v3_user" id="hostSNMPv3User" autocomplete="off">
+                    </div>
+                    <div class="form-group">
+                        <label for="hostSNMPv3AuthProto">v3 Auth Protocol</label>
+                        <select name="snmp_v3_auth_proto" id="hostSNMPv3AuthProto">
+                            <option value="">SHA (default when auth set)</option>
+                            <option value="MD5">MD5</option>
+                            <option value="SHA">SHA</option>
+                            <option value="SHA256">SHA-256</option>
+                            <option value="SHA512">SHA-512</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="hostSNMPv3AuthPass">v3 Auth Password</label>
+                        <input type="password" name="snmp_v3_auth_pass" id="hostSNMPv3AuthPass" autocomplete="new-password">
+                    </div>
+                    <div class="form-group">
+                        <label for="hostSNMPv3PrivProto">v3 Privacy Protocol</label>
+                        <select name="snmp_v3_priv_proto" id="hostSNMPv3PrivProto">
+                            <option value="">AES (default when privacy set)</option>
+                            <option value="DES">DES</option>
+                            <option value="AES">AES-128</option>
+                            <option value="AES192">AES-192</option>
+                            <option value="AES256">AES-256</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="hostSNMPv3PrivPass">v3 Privacy Password</label>
+                    <input type="password" name="snmp_v3_priv_pass" id="hostSNMPv3PrivPass" autocomplete="new-password">
+                    <small class="help">No passwords = noAuthNoPriv; auth only = authNoPriv; both = authPriv.</small>
+                </div>
+                <div class="form-group">
+                    <label for="hostSNMPExtraOIDs">Extra OIDs (one "&lt;oid&gt; &lt;metric&gt;" per line)</label>
+                    <textarea name="snmp_extra_oids" id="hostSNMPExtraOIDs" rows="3" placeholder="1.3.6.1.4.1.999.1.0 temp_c"></textarea>
+                    <small class="help">Exported as snmp.custom.&lt;metric&gt;.</small>
+                </div>
             </div>
             <div class="form-group">
                 <label for="hostTags">Tags (comma-separated)</label>
@@ -220,6 +278,14 @@
             document.getElementById('hostScriptName').value = host.script_name || '';
             document.getElementById('hostScriptCommand').value = host.script_command || '';
             document.getElementById('hostScriptParse').value = host.script_parse || '';
+            document.getElementById('hostSNMPVersion').value = host.snmp_version || '2c';
+            document.getElementById('hostSNMPCommunity').value = host.snmp_community || '';
+            document.getElementById('hostSNMPv3User').value = host.snmp_v3_user || '';
+            document.getElementById('hostSNMPv3AuthProto').value = host.snmp_v3_auth_proto || '';
+            document.getElementById('hostSNMPv3AuthPass').value = host.snmp_v3_auth_pass || '';
+            document.getElementById('hostSNMPv3PrivProto').value = host.snmp_v3_priv_proto || '';
+            document.getElementById('hostSNMPv3PrivPass').value = host.snmp_v3_priv_pass || '';
+            document.getElementById('hostSNMPExtraOIDs').value = host.snmp_extra_oids || '';
             document.getElementById('hostProject').value = host.project_id || '';
             document.getElementById('hostKeyPolicy').value = host.ssh_host_key_policy || '';
             document.getElementById('hostRetryMax').value = host.retry_max_retries || '';
@@ -232,6 +298,8 @@
             document.getElementById('hostModalTitle').textContent = 'Add Host';
         }
         toggleCustomScriptSection();
+        toggleSNMPSection(form.connection.value || document.getElementById('hostConnection').value);
+        toggleSNMPAuth();
         highlightScript();
         const status = document.getElementById('scriptTestStatus');
         status.textContent = '';
@@ -300,6 +368,14 @@
             script_name: form.script_name ? form.script_name.value : '',
             script_command: form.script_command ? form.script_command.value : '',
             script_parse: form.script_parse ? form.script_parse.value : '',
+            snmp_version: form.snmp_version ? form.snmp_version.value : '',
+            snmp_community: form.snmp_community ? form.snmp_community.value : '',
+            snmp_v3_user: form.snmp_v3_user ? form.snmp_v3_user.value : '',
+            snmp_v3_auth_proto: form.snmp_v3_auth_proto ? form.snmp_v3_auth_proto.value : '',
+            snmp_v3_auth_pass: form.snmp_v3_auth_pass ? form.snmp_v3_auth_pass.value : '',
+            snmp_v3_priv_proto: form.snmp_v3_priv_proto ? form.snmp_v3_priv_proto.value : '',
+            snmp_v3_priv_pass: form.snmp_v3_priv_pass ? form.snmp_v3_priv_pass.value : '',
+            snmp_extra_oids: form.snmp_extra_oids ? form.snmp_extra_oids.value : '',
         };
         if (form.project_id.value) data.project_id = parseInt(form.project_id.value, 10);
         if (form.retry_max_retries.value) data.retry_max_retries = parseInt(form.retry_max_retries.value);
@@ -342,6 +418,25 @@
     function toggleCustomScriptSection() {
         const pref = document.getElementById('hostCollectorPreference').value;
         document.getElementById('customScriptSection').hidden = pref !== 'custom';
+    }
+
+    function toggleSNMPSection(connection) {
+        document.getElementById('snmpSection').hidden = connection !== 'snmp';
+        if (connection === 'snmp') {
+            const port = document.getElementById('hostPort');
+            if (!port.value || port.value === '22') port.value = 161;
+            toggleSNMPAuth();
+        }
+    }
+
+    function toggleSNMPAuth() {
+        const v = document.getElementById('hostSNMPVersion').value;
+        const is3 = v === '3';
+        ['hostSNMPv3User', 'hostSNMPv3AuthProto', 'hostSNMPv3AuthPass',
+         'hostSNMPv3PrivProto', 'hostSNMPv3PrivPass'].forEach(id => {
+            document.getElementById(id).disabled = !is3;
+        });
+        document.getElementById('hostSNMPCommunity').disabled = is3;
     }
 
     function highlightScript() {

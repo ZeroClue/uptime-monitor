@@ -61,6 +61,14 @@ type Host struct {
 	SSHTimeout          *time.Duration `yaml:"ssh_timeout"`         // connection phase; default 10s
 	CollectorTimeout    *time.Duration `yaml:"collector_timeout"`   // whole-collect budget; default 30s
 	SSHHostKeyPolicy    *string        `yaml:"ssh_host_key_policy"` // auto | strict | known; unset = global
+	SNMPVersion         string         `yaml:"snmp_version"`        // snmp connection: "2c" | "3"
+	SNMPCommunity       string         `yaml:"snmp_community"`
+	SNMPv3User          string         `yaml:"snmp_v3_user"`
+	SNMPv3AuthProto     string         `yaml:"snmp_v3_auth_proto"` // MD5 | SHA | ...
+	SNMPv3AuthPass      string         `yaml:"snmp_v3_auth_pass"`
+	SNMPv3PrivProto     string         `yaml:"snmp_v3_priv_proto"` // DES | AES | ...
+	SNMPv3PrivPass      string         `yaml:"snmp_v3_priv_pass"`
+	SNMPExtraOIDs       string         `yaml:"snmp_extra_oids"` // lines of "<oid> <metric_name>"
 }
 
 func Load(configDir string) (*Config, error) {

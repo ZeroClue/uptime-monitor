@@ -157,6 +157,54 @@ var hostFields = []hostField{
 		bind: func(h *Host) any { return h.ScriptParse },
 		scan: func(h *Host) (any, func()) { return &h.ScriptParse, nil },
 	},
+	{
+		name:      "snmp_version",
+		yamlOwned: true,
+		bind:      func(h *Host) any { return h.SNMPVersion },
+		scan:      func(h *Host) (any, func()) { return &h.SNMPVersion, nil },
+	},
+	{
+		name:      "snmp_community",
+		yamlOwned: true,
+		bind:      func(h *Host) any { return h.SNMPCommunity },
+		scan:      func(h *Host) (any, func()) { return &h.SNMPCommunity, nil },
+	},
+	{
+		name:      "snmp_v3_user",
+		yamlOwned: true,
+		bind:      func(h *Host) any { return h.SNMPv3User },
+		scan:      func(h *Host) (any, func()) { return &h.SNMPv3User, nil },
+	},
+	{
+		name:      "snmp_v3_auth_proto",
+		yamlOwned: true,
+		bind:      func(h *Host) any { return h.SNMPv3AuthProto },
+		scan:      func(h *Host) (any, func()) { return &h.SNMPv3AuthProto, nil },
+	},
+	{
+		name:      "snmp_v3_auth_pass",
+		yamlOwned: true,
+		bind:      func(h *Host) any { return h.SNMPv3AuthPass },
+		scan:      func(h *Host) (any, func()) { return &h.SNMPv3AuthPass, nil },
+	},
+	{
+		name:      "snmp_v3_priv_proto",
+		yamlOwned: true,
+		bind:      func(h *Host) any { return h.SNMPv3PrivProto },
+		scan:      func(h *Host) (any, func()) { return &h.SNMPv3PrivProto, nil },
+	},
+	{
+		name:      "snmp_v3_priv_pass",
+		yamlOwned: true,
+		bind:      func(h *Host) any { return h.SNMPv3PrivPass },
+		scan:      func(h *Host) (any, func()) { return &h.SNMPv3PrivPass, nil },
+	},
+	{
+		name:      "snmp_extra_oids",
+		yamlOwned: true,
+		bind:      func(h *Host) any { return h.SNMPExtraOIDs },
+		scan:      func(h *Host) (any, func()) { return &h.SNMPExtraOIDs, nil },
+	},
 }
 
 func nullableIntScan(set func(*Host, int64)) func(*Host) (any, func()) {
@@ -287,6 +335,14 @@ func seedToHost(c config.Host) *Host {
 		ProjectID:           c.ProjectID,
 		RetryMaxRetries:     c.RetryMaxRetries,
 		SSHHostKeyPolicy:    c.SSHHostKeyPolicy,
+		SNMPVersion:         c.SNMPVersion,
+		SNMPCommunity:       c.SNMPCommunity,
+		SNMPv3User:          c.SNMPv3User,
+		SNMPv3AuthProto:     c.SNMPv3AuthProto,
+		SNMPv3AuthPass:      c.SNMPv3AuthPass,
+		SNMPv3PrivProto:     c.SNMPv3PrivProto,
+		SNMPv3PrivPass:      c.SNMPv3PrivPass,
+		SNMPExtraOIDs:       c.SNMPExtraOIDs,
 	}
 	if c.RetryBaseDelay != nil {
 		ms := c.RetryBaseDelay.Milliseconds()

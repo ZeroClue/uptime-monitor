@@ -27,5 +27,13 @@ func CollectorHostFor(host storage.Host) collector.Host {
 		ScriptName:          host.ScriptName,
 		ScriptCommand:       host.ScriptCommand,
 		ScriptParse:         host.ScriptParse,
+		SNMPVersion:         host.SNMPVersion,
+		SNMPCommunity:       host.SNMPCommunity,
+		SNMPv3User:          host.SNMPv3User,
+		SNMPv3AuthProto:     host.SNMPv3AuthProto,
+		SNMPv3AuthPass:      host.SNMPv3AuthPass,
+		SNMPv3PrivProto:     host.SNMPv3PrivProto,
+		SNMPv3PrivPass:      host.SNMPv3PrivPass,
+		SNMPExtraOIDs:       host.SNMPExtraOIDs,
 	}
 }

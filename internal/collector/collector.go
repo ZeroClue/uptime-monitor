@@ -50,4 +50,12 @@ type Host struct {
 	ScriptName          string // custom collector: metric namespace custom.<script_name>.*
 	ScriptCommand       string // custom collector: command template over {{.Host}}/{{.Port}}
 	ScriptParse         string // custom collector: json (default) | csv | plain
+	SNMPVersion         string // snmp connection: "2c" | "3"
+	SNMPCommunity       string // snmp v2c community
+	SNMPv3User          string
+	SNMPv3AuthProto     string // MD5 | SHA | SHA224 | SHA256 | SHA384 | SHA512
+	SNMPv3AuthPass      string
+	SNMPv3PrivProto     string // DES | AES | AES192 | AES256
+	SNMPv3PrivPass      string
+	SNMPExtraOIDs       string // lines of "<oid> <metric_name>"
 }

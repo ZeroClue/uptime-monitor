@@ -92,6 +92,7 @@ func main() {
 		collector.NewLocalProcfsCollector(collector.WithLocalLogger(logger)),
 		collector.NewPsutilCollector(collector.WithPsutilSSHClient(sshClient)),
 		collector.NewProcfsCollector(collector.WithProcfsSSHClient(sshClient)),
+		collector.NewSNMPCollector(),
 		collector.NewTailscaleCollector(collector.WithTailscaleSSHClient(sshClient)),
 		collector.NewCustomCollector(collector.WithCustomSSHClient(sshClient), collector.WithCustomLogger(logger)),
 	)
