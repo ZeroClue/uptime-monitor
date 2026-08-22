@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/ZeroClue/uptime-monitor/internal/config"
 )
 
 func newTestProjectDB(t *testing.T) *DB {
@@ -257,5 +259,69 @@ func TestHostKeyPolicyRoundtrip(t *testing.T) {
 	got2, _ := db.GetHost(ctx, id)
 	if got2.SSHHostKeyPolicy == nil || *got2.SSHHostKeyPolicy != "strict" {
 		t.Fatalf("policy lost on update: %+v", got2)
+	}
+}
+
+func TestSeedHosts_UpsertSemantics(t *testing.T) {
+	db := newTestProjectDB(t)
+	ctx := context.Background()
+
+	// Initial seed defines the host.
+	if err := db.SeedHosts([]config.Host{
+		{Name: "mixed", Connection: "ssh", Endpoint: "10.0.0.1", Port: 22, Timeout: 10 * time.Second, Tags: []string{"old"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	host, _ := db.GetHostByName(ctx, "mixed")
+
+	// Operator tunes operational fields via the API path.
+	retry := int64(5)
+	base := int64(500)
+	pol := "auto"
+	host.TimeoutRaw = (30 * time.Second).Nanoseconds()
+	host.RetryMaxRetries = &retry
+	host.RetryBaseMs = &base
+	host.SSHHostKeyPolicy = &pol
+	if err := db.UpdateHost(ctx, host); err != nil {
+		t.Fatal(err)
+	}
+
+	// yaml changes connectivity AND would have clobbered operations.
+	if err := db.SeedHosts([]config.Host{
+		{Name: "mixed", Connection: "ssh", Endpoint: "10.0.0.99", Port: 2222, Timeout: 10 * time.Second, Tags: []string{"new"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := db.GetHostByName(ctx, "mixed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Endpoint != "10.0.0.99" || got.Port != 2222 {
+		t.Errorf("identity fields should resync from yaml: %+v:%d", got.Endpoint, got.Port)
+	}
+	if len(got.Tags) != 1 || got.Tags[0] != "new" {
+		t.Errorf("tags are identity: %v", got.Tags)
+	}
+	if got.TimeoutRaw != (30 * time.Second).Nanoseconds() {
+		t.Errorf("timeout override lost to yaml sync: %v", got.TimeoutRaw)
+	}
+	if got.RetryMaxRetries == nil || *got.RetryMaxRetries != 5 {
+		t.Errorf("retry override lost: %v", got.RetryMaxRetries)
+	}
+	if got.SSHHostKeyPolicy == nil || *got.SSHHostKeyPolicy != "auto" {
+		t.Errorf("policy override lost: %v", got.SSHHostKeyPolicy)
+	}
+
+	// Fresh hosts still get full seeding including operational values.
+	freshTimeout := 42 * time.Second
+	if err := db.SeedHosts([]config.Host{
+		{Name: "fresh", Connection: "ssh", Endpoint: "10.0.1.1", Port: 22, Timeout: freshTimeout},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	fresh, _ := db.GetHostByName(ctx, "fresh")
+	if fresh.Timeout != freshTimeout {
+		t.Errorf("fresh host timeout not seeded: %v", fresh.Timeout)
 	}
 }

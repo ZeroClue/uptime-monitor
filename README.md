@@ -341,6 +341,10 @@ Manage projects at **Project Config** (`/projects/config`): create, edit (name/t
 
 Failed polls retry with exponential backoff — `delay = min(base_delay * 2^attempt + jitter, max_delay)`. Defaults: 3 attempts, 2s base, 30s max, 0.2 jitter; configure globally via the `retry:` block in `hosts.yaml` or per host (`retry_max_retries`, `retry_base_delay`, `retry_max_delay`, or the host form). Authentication and host-key failures are never retried. The last poll's attempt count and total backoff time appear in `/api/hosts/status` (`poll_attempts`, `retry_time_ms`).
 
+### Hosts: yaml vs UI edits
+
+hosts.yaml is the source of truth for host **connectivity** (endpoint, port, user, key, sudo, proxy jump, tags) and re-syncs on every startup. **Operational settings** — timeouts, retries, host-key policy, collector preference, project assignment — are seeded once for new hosts and afterwards owned by the database (UI/API edits survive restarts; changing them in yaml for an existing host has no effect).
+
 ### SSH host keys
 
 `ssh_host_key_policy` controls host-key verification (set globally in hosts.yaml or per host):

@@ -112,15 +112,8 @@ func (db *DB) SeedHosts(hosts []config.Host) error {
 				user=excluded.user,
 				key_path=excluded.key_path,
 				sudo=excluded.sudo,
-				timeout=excluded.timeout,
 				proxy_jump=excluded.proxy_jump,
 				tags=excluded.tags,
-				collector_preference=excluded.collector_preference,
-				ssh_timeout_ms=excluded.ssh_timeout_ms,
-				collector_timeout_ms=excluded.collector_timeout_ms,
-				retry_max_retries=excluded.retry_max_retries,
-				retry_base_delay_ms=excluded.retry_base_delay_ms,
-				retry_max_delay_ms=excluded.retry_max_delay_ms,
 				updated_at=excluded.updated_at
 		`, h.Name, h.Connection, h.Endpoint, h.Port, h.User, h.KeyPath, h.Sudo, h.Timeout.Nanoseconds(), h.ProxyJump, string(tags), h.CollectorPreference, nullIfZero(h.ProjectID), nullIfNilPtr(h.SSHHostKeyPolicy), nullIfZero(h.RetryMaxRetries), durationMsOrNull(h.RetryBaseDelay), durationMsOrNull(h.RetryMaxDelay), durationMsOrNull(h.SSHTimeout), durationMsOrNull(h.CollectorTimeout), time.Now().Unix(), time.Now().Unix())
 		if err != nil {
@@ -164,4 +157,16 @@ func (db *DB) UpdateHost(ctx context.Context, h *Host) error {
 func (db *DB) DeleteHost(ctx context.Context, id int64) error {
 	_, err := db.ExecContext(ctx, `DELETE FROM hosts WHERE id = ?`, id)
 	return err
+}
+
+// GetHostByName returns the host with the given name, or nil when absent.
+func (db *DB) GetHostByName(ctx context.Context, name string) (*Host, error) {
+	row := db.QueryRowContext(ctx, `SELECT `+hostColumns+` FROM hosts WHERE name = ?`, name)
+	var h Host
+	if err := scanHostRow(row, &h); err == sql.ErrNoRows {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
+	return &h, nil
 }
