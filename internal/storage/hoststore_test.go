@@ -235,4 +235,43 @@ func TestSeedHosts_FullFieldRoundtrip(t *testing.T) {
 		SSHHostKeyPolicy:    seed[0].SSHHostKeyPolicy,
 	}
 	eqHost(t, "seeded from config", want, *got)
+
+	// Re-seed with every yaml-owned column changed: the ON CONFLICT branch
+	// must refresh exactly those and leave operational columns untouched.
+	seed[0].Connection = "snmp"
+	seed[0].Endpoint = "198.51.100.21"
+	seed[0].Port = 2202
+	seed[0].User = "seed-user2"
+	seed[0].KeyPath = "/keys/seed2"
+	seed[0].Sudo = false
+	seed[0].ProxyJump = "jump-seed2"
+	seed[0].Tags = []string{"seed-b"}
+	if err := db.SeedHosts(seed); err != nil {
+		t.Fatalf("re-seed: %v", err)
+	}
+	reseeded, err := db.GetHostByName(ctx, "rt-seed")
+	if err != nil || reseeded == nil {
+		t.Fatalf("get re-seeded host: %v %v", reseeded, err)
+	}
+	wantReseeded := Host{
+		Name:                "rt-seed",
+		Connection:          "snmp",
+		Endpoint:            "198.51.100.21",
+		Port:                2202,
+		User:                "seed-user2",
+		KeyPath:             "/keys/seed2",
+		Sudo:                false,
+		TimeoutRaw:          timeout.Nanoseconds(),
+		ProxyJump:           "jump-seed2",
+		Tags:                []string{"seed-b"},
+		CollectorPreference: "prom",
+		RetryMaxRetries:     iptr(9),
+		RetryBaseMs:         iptr(baseDelay.Milliseconds()),
+		RetryMaxMs:          iptr(maxDelay.Milliseconds()),
+		SshTimeoutMs:        iptr(sshTimeout.Milliseconds()),
+		CollectorTimeoutMs:  iptr(collTimeout.Milliseconds()),
+		ProjectID:           &proj,
+		SSHHostKeyPolicy:    sptr("auto"),
+	}
+	eqHost(t, "after re-seed", wantReseeded, *reseeded)
 }

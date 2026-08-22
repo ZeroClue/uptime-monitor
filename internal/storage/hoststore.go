@@ -21,10 +21,10 @@ func (db *DB) GetHosts() ([]Host, error) {
 // every SELECT column list, INSERT, UPDATE SET, upsert assignment and row
 // scan below is built: adding a column means adding exactly one entry here.
 type hostField struct {
-	name   string
-	upsert bool                                  // included in SeedHosts' ON CONFLICT DO UPDATE SET
-	bind   func(*Host) any                       // INSERT / UPDATE value; nil = never written here (id)
-	scan   func(*Host) (dest any, finish func()) // row-scan destination plus post-scan normalization
+	name      string
+	yamlOwned bool                                  // ADR-0007: yaml owns this column; refreshed on every re-seed
+	bind      func(*Host) any                       // INSERT / UPDATE value; nil = never written here (id)
+	scan      func(*Host) (dest any, finish func()) // row-scan destination plus post-scan normalization
 }
 
 var hostFields = []hostField{
@@ -38,38 +38,40 @@ var hostFields = []hostField{
 		scan: func(h *Host) (any, func()) { return &h.Name, nil },
 	},
 	{
-		name:   "connection",
-		upsert: true,
-		bind:   func(h *Host) any { return h.Connection },
-		scan:   func(h *Host) (any, func()) { return &h.Connection, nil },
+		name:      "connection",
+		yamlOwned: true,
+		bind:      func(h *Host) any { return h.Connection },
+		scan:      func(h *Host) (any, func()) { return &h.Connection, nil },
 	},
 	{
-		name:   "endpoint",
-		upsert: true,
-		bind:   func(h *Host) any { return h.Endpoint },
-		scan:   func(h *Host) (any, func()) { return &h.Endpoint, nil },
+		name:      "endpoint",
+		yamlOwned: true,
+		bind:      func(h *Host) any { return h.Endpoint },
+		scan:      func(h *Host) (any, func()) { return &h.Endpoint, nil },
 	},
 	{
-		name:   "port",
-		upsert: true,
-		bind:   func(h *Host) any { return h.Port },
-		scan:   func(h *Host) (any, func()) { return &h.Port, nil },
+		name:      "port",
+		yamlOwned: true,
+		bind:      func(h *Host) any { return h.Port },
+		scan:      func(h *Host) (any, func()) { return &h.Port, nil },
 	},
 	{
-		name: "user",
-		bind: func(h *Host) any { return h.User },
-		scan: func(h *Host) (any, func()) { return &h.User, nil },
+		name:      "user",
+		yamlOwned: true,
+		bind:      func(h *Host) any { return h.User },
+		scan:      func(h *Host) (any, func()) { return &h.User, nil },
 	},
 	{
-		name: "key_path",
-		bind: func(h *Host) any { return h.KeyPath },
-		scan: func(h *Host) (any, func()) { return &h.KeyPath, nil },
+		name:      "key_path",
+		yamlOwned: true,
+		bind:      func(h *Host) any { return h.KeyPath },
+		scan:      func(h *Host) (any, func()) { return &h.KeyPath, nil },
 	},
 	{
-		name:   "sudo",
-		upsert: true,
-		bind:   func(h *Host) any { return h.Sudo },
-		scan:   func(h *Host) (any, func()) { return &h.Sudo, nil },
+		name:      "sudo",
+		yamlOwned: true,
+		bind:      func(h *Host) any { return h.Sudo },
+		scan:      func(h *Host) (any, func()) { return &h.Sudo, nil },
 	},
 	{
 		name: "timeout",
@@ -83,14 +85,14 @@ var hostFields = []hostField{
 		},
 	},
 	{
-		name:   "proxy_jump",
-		upsert: true,
-		bind:   func(h *Host) any { return h.ProxyJump },
-		scan:   func(h *Host) (any, func()) { return &h.ProxyJump, nil },
+		name:      "proxy_jump",
+		yamlOwned: true,
+		bind:      func(h *Host) any { return h.ProxyJump },
+		scan:      func(h *Host) (any, func()) { return &h.ProxyJump, nil },
 	},
 	{
-		name:   "tags",
-		upsert: true,
+		name:      "tags",
+		yamlOwned: true,
 		bind: func(h *Host) any {
 			tags, _ := json.Marshal(h.Tags)
 			return string(tags)
@@ -192,7 +194,7 @@ func hostInsertSQL() string {
 func hostUpsertSet() string {
 	assignments := make([]string, 0, len(hostFields))
 	for i := range hostFields {
-		if hostFields[i].upsert {
+		if hostFields[i].yamlOwned {
 			assignments = append(assignments, hostFields[i].name+"=excluded."+hostFields[i].name)
 		}
 	}
