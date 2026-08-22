@@ -63,28 +63,9 @@
             .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
-    async function apiGet(path) {
-        const r = await fetch(path, { headers: { 'Accept': 'application/json' } });
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.json();
-    }
 
-    async function apiPost(path, data) {
-        const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-        if (!r.ok) throw new Error(await r.text() || ('HTTP ' + r.status));
-        return r.json();
-    }
 
-    async function apiPut(path, data) {
-        const r = await fetch(path, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-        if (!r.ok) throw new Error(await r.text() || ('HTTP ' + r.status));
-        return r.json();
-    }
 
-    async function apiDelete(path) {
-        const r = await fetch(path, { method: 'DELETE' });
-        if (!r.ok && r.status !== 204) throw new Error('HTTP ' + r.status);
-    }
 
     function renderProjects() {
         const tbody = document.getElementById('projectsBody');

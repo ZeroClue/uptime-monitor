@@ -216,25 +216,6 @@
     let hosts = [];
 
     // API helpers
-    async function apiGet(path) {
-        const res = await fetch(path, { headers: { 'Accept': 'application/json' } });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        return res.json();
-    }
-    async function apiPost(path, body) {
-        const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        return res.json();
-    }
-    async function apiPut(path, body) {
-        const res = await fetch(path, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        return res.json();
-    }
-    async function apiDelete(path) {
-        const res = await fetch(path, { method: 'DELETE' });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-    }
 
     function showSection(section) {
         document.getElementById('rulesSection').hidden = section !== 'rules';
