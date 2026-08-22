@@ -1,7 +1,9 @@
 package ssh
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os/exec"
@@ -72,6 +74,16 @@ func NewSSHClient(logger *slog.Logger, defaults *SSHTargetDefaults) SSHClient {
 // Exec executes a command on the target host via SSH.
 // Returns stdout+stderr combined output, or an error if the command fails.
 func (c *sshClient) Exec(ctx context.Context, target *SSHTarget, cmd string) (string, error) {
+	return c.execLimited(ctx, target, cmd, 0)
+}
+
+// ExecLimited executes a command like Exec but fails once the combined
+// output exceeds maxBytes. A non-positive maxBytes means unlimited.
+func (c *sshClient) ExecLimited(ctx context.Context, target *SSHTarget, cmd string, maxBytes int64) (string, error) {
+	return c.execLimited(ctx, target, cmd, maxBytes)
+}
+
+func (c *sshClient) execLimited(ctx context.Context, target *SSHTarget, cmd string, maxBytes int64) (string, error) {
 	// Apply defaults for any zero values
 	if target.Port == 0 {
 		target.Port = c.defaults.DefaultPort
@@ -119,12 +131,42 @@ func (c *sshClient) Exec(ctx context.Context, target *SSHTarget, cmd string) (st
 	defer cancel()
 
 	cmdExec := exec.CommandContext(ctx, args[0], args[1:]...)
-	output, err := cmdExec.CombinedOutput()
+	var output bytes.Buffer
+	if maxBytes > 0 {
+		cmdExec.Stdout = &limitedWriter{w: &output, n: maxBytes}
+		cmdExec.Stderr = cmdExec.Stdout
+	} else {
+		cmdExec.Stdout = &output
+		cmdExec.Stderr = &output
+	}
+	err := cmdExec.Run()
 	if err != nil {
-		c.logger.Debug("ssh command failed", "host", target.Endpoint, "error", err, "output", string(output))
+		c.logger.Debug("ssh command failed", "host", target.Endpoint, "error", err, "output", output.String())
 		return "", fmt.Errorf("ssh failed: %w", err)
 	}
-	return string(output), nil
+	return output.String(), nil
+}
+
+// limitedWriter writes at most n total bytes; further writes fail loudly so
+// a runaway remote command is cut off instead of exhausting memory.
+type limitedWriter struct {
+	w *bytes.Buffer
+	n int64
+}
+
+func (l *limitedWriter) Write(p []byte) (int, error) {
+	if l.n <= 0 {
+		return 0, errors.New("output exceeds limit")
+	}
+	written := int64(len(p))
+	if written > l.n {
+		l.w.Write(p[:l.n])
+		l.n = 0
+		return len(p), errors.New("output exceeds limit")
+	}
+	l.w.Write(p)
+	l.n -= written
+	return len(p), nil
 }
 
 // knownHostsHasEntry reports whether the endpoint already has an entry.

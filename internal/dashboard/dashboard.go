@@ -3,11 +3,14 @@ package dashboard
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"embed"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -15,7 +18,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ZeroClue/uptime-monitor/internal/collector"
 	"github.com/ZeroClue/uptime-monitor/internal/scheduler"
+	"github.com/ZeroClue/uptime-monitor/internal/ssh"
 	"github.com/ZeroClue/uptime-monitor/internal/storage"
 )
 
@@ -34,6 +39,7 @@ type Server struct {
 	cookieSecure bool
 	tokenLimiter *tokenRateLimiter
 	lastUsed     *lastUsedRecorder
+	scriptRunner collector.Collector // nil = real custom-script runner; tests inject a fake
 }
 
 func NewServer(password string, db *storage.DB, sched *scheduler.Scheduler, logger *slog.Logger, cookieSecure bool) *Server {
@@ -597,6 +603,10 @@ func (s *Server) handleAPIHosts(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		s.handleAPIHostsGet(w, r)
 	case http.MethodPost:
+		if strings.HasSuffix(r.URL.Path, "/scripts/test") {
+			s.handleAPIHostScriptTest(w, r)
+			return
+		}
 		s.handleAPIHostsPost(w, r)
 	case http.MethodPut:
 		s.handleAPIHostsPut(w, r)
@@ -684,6 +694,101 @@ func (s *Server) handleAPIHostsDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleAPIHostScriptTest runs a custom-collector script against a stored
+// host's connection details without persisting anything. Optional JSON body
+// fields script_name / script_command / script_parse override the stored
+// values so drafts can be tested before saving.
+func (s *Server) handleAPIHostScriptTest(w http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(r.URL.Path, "/api/hosts/")
+	id := mustParseInt64(strings.TrimSuffix(rest, "/scripts/test"))
+
+	var overrides struct {
+		ScriptName    *string `json:"script_name"`
+		ScriptCommand *string `json:"script_command"`
+		ScriptParse   *string `json:"script_parse"`
+	}
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&overrides); err != nil && !errors.Is(err, io.EOF) {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+	}
+
+	stored, err := s.db.GetHost(r.Context(), id)
+	if errors.Is(err, sql.ErrNoRows) {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		s.logger.Error("failed to load host", "error", err)
+		http.Error(w, "Internal error", http.StatusInternalServerError)
+		return
+	}
+	if stored == nil {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
+	}
+
+	target := collector.Host{
+		ID:                  stored.ID,
+		Name:                stored.Name,
+		Connection:          stored.Connection,
+		Endpoint:            stored.Endpoint,
+		Port:                stored.Port,
+		User:                stored.User,
+		KeyPath:             stored.KeyPath,
+		Sudo:                stored.Sudo,
+		Timeout:             stored.Timeout,
+		SSHTimeout:          msDuration(stored.SshTimeoutMs),
+		CollectorTimeout:    msDuration(stored.CollectorTimeoutMs),
+		SSHHostKeyPolicy:    derefPolicy(stored.SSHHostKeyPolicy),
+		ProxyJump:           stored.ProxyJump,
+		CollectorPreference: stored.CollectorPreference,
+		ScriptName:          stored.ScriptName,
+		ScriptCommand:       stored.ScriptCommand,
+		ScriptParse:         stored.ScriptParse,
+	}
+	if overrides.ScriptName != nil {
+		target.ScriptName = *overrides.ScriptName
+	}
+	if overrides.ScriptCommand != nil {
+		target.ScriptCommand = *overrides.ScriptCommand
+	}
+	if overrides.ScriptParse != nil {
+		target.ScriptParse = *overrides.ScriptParse
+	}
+
+	runner := s.scriptRunner
+	if runner == nil {
+		runner = collector.NewCustomCollector(
+			collector.WithCustomSSHClient(ssh.NewSSHClient(s.logger, nil)),
+			collector.WithCustomLogger(s.logger),
+		)
+	}
+	samples, err := runner.Collect(r.Context(), target)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("script test failed: %v", err), http.StatusBadGateway)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"count": len(samples), "samples": samples})
+}
+
+func msDuration(ms *int64) time.Duration {
+	if ms == nil || *ms <= 0 {
+		return 0
+	}
+	return time.Duration(*ms) * time.Millisecond
+}
+
+func derefPolicy(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
 
 type HostStatusSummary struct {

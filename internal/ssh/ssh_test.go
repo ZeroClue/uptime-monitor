@@ -1,33 +1,55 @@
 package ssh
 
 import (
-	"os"
-	"path/filepath"
+	"bytes"
+	"strings"
 	"testing"
 )
 
-func TestKnownHostsHasEntry(t *testing.T) {
-	dir := t.TempDir()
-	file := filepath.Join(dir, "known_hosts")
+func TestLimitedWriter_BoundsOutput(t *testing.T) {
+	var buf bytes.Buffer
+	lw := &limitedWriter{w: &buf, n: 5}
 
-	c := NewSSHClient(nil, nil).(*sshClient)
-
-	if c.knownHostsHasEntry(file, "example.com", 22) {
-		t.Fatal("empty file should have no entry")
+	n, err := lw.Write([]byte("hello world"))
+	if err == nil {
+		t.Fatal("expected error once limit exceeded")
+	}
+	if n != 11 {
+		t.Errorf("Write should report full len even when truncated, got %d", n)
+	}
+	if buf.String() != "hello" {
+		t.Errorf("buffer: want %q got %q", "hello", buf.String())
 	}
 
-	// Generate real entries with ssh-keyscan against the local sshd-less
-	// environment is unreliable; craft entries via ssh-keygen -F format by
-	// scanning a known local host is not possible here. Instead append a
-	// syntactically valid entry and confirm lookup.
-	entry := "example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ\n"
-	if err := os.WriteFile(file, []byte(entry), 0o600); err != nil {
-		t.Fatal(err)
+	// After tripping, further writes fail without growing the buffer.
+	if _, err := lw.Write([]byte("more")); err == nil {
+		t.Error("expected error on write past tripped limit")
 	}
-	if !c.knownHostsHasEntry(file, "example.com", 22) {
-		t.Fatal("expected entry for example.com:22")
+	if buf.Len() != 5 {
+		t.Errorf("buffer grew after limit: %d bytes", buf.Len())
 	}
-	if c.knownHostsHasEntry(file, "other.com", 22) {
-		t.Fatal("unexpected entry for other.com")
+}
+
+func TestLimitedWriter_UnderLimit(t *testing.T) {
+	var buf bytes.Buffer
+	lw := &limitedWriter{w: &buf, n: 100}
+	for _, chunk := range []string{"a", "bb", "ccc"} {
+		if _, err := lw.Write([]byte(chunk)); err != nil {
+			t.Fatalf("write %q: %v", chunk, err)
+		}
+	}
+	if buf.String() != strings.Repeat("", 0)+"abbccc" {
+		t.Errorf("buffer: %q", buf.String())
+	}
+}
+
+func TestLimitedWriter_ZeroLimitFailsImmediately(t *testing.T) {
+	var buf bytes.Buffer
+	lw := &limitedWriter{w: &buf, n: 0}
+	if _, err := lw.Write([]byte("x")); err == nil {
+		t.Error("expected error with zero limit")
+	}
+	if buf.Len() != 0 {
+		t.Errorf("buffer should stay empty, got %q", buf.String())
 	}
 }

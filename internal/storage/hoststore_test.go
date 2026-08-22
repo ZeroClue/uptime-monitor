@@ -88,6 +88,16 @@ func eqHost(t *testing.T, phase string, want, got Host) {
 	cmpInt64Ptr("collector_timeout_ms", want.CollectorTimeoutMs, got.CollectorTimeoutMs)
 	cmpInt64Ptr("project_id", want.ProjectID, got.ProjectID)
 	cmpStrPtr("ssh_host_key_policy", want.SSHHostKeyPolicy, got.SSHHostKeyPolicy)
+
+	if got.ScriptName != want.ScriptName {
+		t.Errorf("%s: script_name: want %q got %q", phase, want.ScriptName, got.ScriptName)
+	}
+	if got.ScriptCommand != want.ScriptCommand {
+		t.Errorf("%s: script_command: want %q got %q", phase, want.ScriptCommand, got.ScriptCommand)
+	}
+	if got.ScriptParse != want.ScriptParse {
+		t.Errorf("%s: script_parse: want %q got %q", phase, want.ScriptParse, got.ScriptParse)
+	}
 }
 
 // fullHost returns a Host with every column set to a distinct value so any
@@ -112,6 +122,9 @@ func fullHost(projectID int64) *Host {
 		CollectorTimeoutMs:  iptr(44000),
 		ProjectID:           iptr(projectID),
 		SSHHostKeyPolicy:    sptr("strict"),
+		ScriptName:          "rt-script",
+		ScriptCommand:       `/opt/rt/bin/stats --host {{.Host}} --port {{.Port}}`,
+		ScriptParse:         "json",
 	}
 }
 
@@ -154,6 +167,9 @@ func TestHostFullFieldRoundtrip_CreateUpdateGet(t *testing.T) {
 	want.SshTimeoutMs = nil
 	want.CollectorTimeoutMs = iptr(66000)
 	want.SSHHostKeyPolicy = nil
+	want.ScriptName = "rt-script-2"
+	want.ScriptCommand = `cat /var/lib/metrics.csv`
+	want.ScriptParse = "csv"
 
 	if err := db.UpdateHost(ctx, want); err != nil {
 		t.Fatalf("update: %v", err)

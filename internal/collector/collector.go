@@ -47,4 +47,7 @@ type Host struct {
 	SSHHostKeyPolicy    string        // "" inherit | auto | strict | known
 	ProxyJump           string
 	CollectorPreference string
+	ScriptName          string // custom collector: metric namespace custom.<script_name>.*
+	ScriptCommand       string // custom collector: command template over {{.Host}}/{{.Port}}
+	ScriptParse         string // custom collector: json (default) | csv | plain
 }

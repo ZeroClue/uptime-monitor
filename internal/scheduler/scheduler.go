@@ -232,6 +232,9 @@ func (s *Scheduler) pollHost(ctx context.Context, host storage.Host) {
 		SSHHostKeyPolicy:    derefString(host.SSHHostKeyPolicy),
 		ProxyJump:           host.ProxyJump,
 		CollectorPreference: host.CollectorPreference,
+		ScriptName:          host.ScriptName,
+		ScriptCommand:       host.ScriptCommand,
+		ScriptParse:         host.ScriptParse,
 	}
 
 	collectCtx := ctx

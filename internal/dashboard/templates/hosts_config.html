@@ -117,12 +117,45 @@
             </div>
             <div class="form-group">
                 <label for="hostCollectorPreference">Collector Preference</label>
-                <select name="collector_preference" id="hostCollectorPreference">
+                <select name="collector_preference" id="hostCollectorPreference" onchange="toggleCustomScriptSection()">
                     <option value="">Auto (fallback chain)</option>
                     <option value="psutil">psutil</option>
                     <option value="procfs">procfs</option>
                     <option value="tailscale">tailscale</option>
+                    <option value="custom">custom — run a user-defined script</option>
                 </select>
+            </div>
+            <div id="customScriptSection" hidden>
+                <h4 class="section-title">Custom Script</h4>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="hostScriptName">Script Name</label>
+                        <input type="text" name="script_name" id="hostScriptName" placeholder="e.g. queue-depth">
+                        <small class="help">Metrics are namespaced as custom.&lt;script_name&gt;.*</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="hostScriptParse">Output Format</label>
+                        <select name="script_parse" id="hostScriptParse">
+                            <option value="">json (default)</option>
+                            <option value="csv">csv</option>
+                            <option value="plain">plain (single number)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="hostScriptCommand">Command (runs over SSH; supports {{"{{.Host}}"}} and {{"{{.Port}}"}})</label>
+                    <div class="editor-wrap">
+                        <pre class="editor-highlight" id="scriptHighlight" aria-hidden="true"></pre>
+                        <textarea name="script_command" id="hostScriptCommand" rows="6" spellcheck="false"
+                            placeholder='echo ''[{"metric":"depth","value":42}]''' oninput="highlightScript()"></textarea>
+                    </div>
+                    <small class="help">stdout must be a JSON array of {metric, value, timestamp?}, CSV lines "metric,value[,unix_ts]", or a plain number. Max 1 MiB / 1000 samples.</small>
+                </div>
+                <div class="form-group">
+                    <button type="button" class="btn-secondary" onclick="testRunScript()">▶ Test Run</button>
+                    <span id="scriptTestStatus" class="test-status"></span>
+                    <pre class="test-output" id="scriptTestOutput" hidden></pre>
+                </div>
             </div>
             <div class="form-group">
                 <label class="checkbox-label">
@@ -184,6 +217,9 @@
             document.getElementById('hostProxyJump').value = host.proxy_jump || '';
             document.getElementById('hostTags').value = (host.tags || []).join(', ');
             document.getElementById('hostCollectorPreference').value = host.collector_preference || '';
+            document.getElementById('hostScriptName').value = host.script_name || '';
+            document.getElementById('hostScriptCommand').value = host.script_command || '';
+            document.getElementById('hostScriptParse').value = host.script_parse || '';
             document.getElementById('hostProject').value = host.project_id || '';
             document.getElementById('hostKeyPolicy').value = host.ssh_host_key_policy || '';
             document.getElementById('hostRetryMax').value = host.retry_max_retries || '';
@@ -195,6 +231,11 @@
         } else {
             document.getElementById('hostModalTitle').textContent = 'Add Host';
         }
+        toggleCustomScriptSection();
+        highlightScript();
+        const status = document.getElementById('scriptTestStatus');
+        status.textContent = '';
+        document.getElementById('scriptTestOutput').hidden = true;
         modal.hidden = false;
     }
 
@@ -256,6 +297,9 @@
             proxy_jump: form.proxy_jump.value,
             tags: form.tags.value.split(',').map(t => t.trim()).filter(Boolean),
             collector_preference: form.collector_preference.value,
+            script_name: form.script_name ? form.script_name.value : '',
+            script_command: form.script_command ? form.script_command.value : '',
+            script_parse: form.script_parse ? form.script_parse.value : '',
         };
         if (form.project_id.value) data.project_id = parseInt(form.project_id.value, 10);
         if (form.retry_max_retries.value) data.retry_max_retries = parseInt(form.retry_max_retries.value);
@@ -295,6 +339,55 @@
 
     // API helpers
 
+    function toggleCustomScriptSection() {
+        const pref = document.getElementById('hostCollectorPreference').value;
+        document.getElementById('customScriptSection').hidden = pref !== 'custom';
+    }
+
+    function highlightScript() {
+        const ta = document.getElementById('hostScriptCommand');
+        const pre = document.getElementById('scriptHighlight');
+        pre.innerHTML = escapeHtml(ta.value)
+            .replace(/(\{\{[^}]*\}\})/g, '<span class="tok-tmpl">$1</span>')
+            .replace(/(&#39;[^&]*?&#39;|"[^"]*")/g, '<span class="tok-str">$1</span>')
+            .replace(/(^|\s)(--?[a-zA-Z][\w-]*)/g, '$1<span class="tok-flag">$2</span>')
+            .replace(/(^|\n)(\s*)(#[^\n]*)/g, '$1$2<span class="tok-comment">$3</span>');
+        pre.scrollTop = ta.scrollTop;
+    }
+
+    async function testRunScript() {
+        if (!document.getElementById('hostId').value) {
+            alert('Save the host first — the test run uses its saved connection details.');
+            return;
+        }
+        const status = document.getElementById('scriptTestStatus');
+        const output = document.getElementById('scriptTestOutput');
+        status.textContent = 'Running…';
+        output.hidden = true;
+        try {
+            const res = await fetch('/api/hosts/' + document.getElementById('hostId').value + '/scripts/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    script_name: document.getElementById('hostScriptName').value,
+                    script_command: document.getElementById('hostScriptCommand').value,
+                    script_parse: document.getElementById('hostScriptParse').value,
+                }),
+            });
+            const text = await res.text();
+            if (!res.ok) throw new Error(text.replace(/^script test failed: /, ''));
+            const data = JSON.parse(text);
+            status.textContent = `OK — ${data.count} sample(s)`;
+            output.hidden = false;
+            output.textContent = data.samples.map(s =>
+                `${s.timestamp}  ${s.metric}  ${s.value}`).join('\n') || '(no samples)';
+        } catch (err) {
+            status.textContent = '';
+            output.hidden = false;
+            output.textContent = 'Error: ' + err.message;
+        }
+    }
+
     document.addEventListener('DOMContentLoaded', async () => {
         await loadHosts();
         document.getElementById('hostForm').addEventListener('submit', submitHost);
@@ -316,5 +409,31 @@
     .modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.5rem; }
     .seg-btn[data-section], .seg-btn[data-status] { flex: 1; }
     .form-group input[type="number"] { width: 100%; }
+    .section-title { margin: 0.25rem 0 0.75rem; color: var(--text-dim); text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; }
+    .editor-wrap { position: relative; }
+    .editor-wrap textarea, .editor-highlight {
+        font-family: var(--mono); font-size: 0.85rem; line-height: 1.45;
+        padding: 0.5rem; margin: 0; border: 1px solid var(--border); border-radius: 4px;
+        white-space: pre-wrap; word-wrap: break-word; overflow: auto; tab-size: 4;
+    }
+    .editor-wrap textarea {
+        width: 100%; display: block; position: relative; z-index: 2;
+        background: transparent; color: transparent; caret-color: var(--text);
+        resize: vertical;
+    }
+    .editor-highlight {
+        position: absolute; inset: 0; z-index: 1; pointer-events: none;
+        background: var(--bg-panel); color: var(--text);
+    }
+    .tok-tmpl { color: var(--accent); font-weight: 600; }
+    .tok-str { color: var(--ok); }
+    .tok-flag { color: var(--warn); }
+    .tok-comment { color: var(--text-faint); font-style: italic; }
+    .test-status { margin-left: 0.5rem; font-size: 0.85rem; color: var(--ok); }
+    .test-output {
+        margin-top: 0.5rem; padding: 0.5rem; max-height: 200px; overflow: auto;
+        background: var(--bg-panel); border: 1px solid var(--border); border-radius: 4px;
+        font-family: var(--mono); font-size: 0.8rem; white-space: pre-wrap; word-break: break-all;
+    }
 </style>
 {{end}}

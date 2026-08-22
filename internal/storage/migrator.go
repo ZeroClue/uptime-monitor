@@ -183,6 +183,11 @@ func (db *DB) Migrate() error {
 		`ALTER TABLE alert_rules ADD COLUMN project_id INTEGER`,
 		`ALTER TABLE notification_channels ADD COLUMN project_id INTEGER`,
 		`ALTER TABLE hosts ADD COLUMN ssh_host_key_policy TEXT`,
+		// Custom script collector config (issue #63); operational data owned
+		// by the API/UI, never re-synced from yaml.
+		`ALTER TABLE hosts ADD COLUMN script_name TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE hosts ADD COLUMN script_command TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE hosts ADD COLUMN script_parse TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := db.Exec(col); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return fmt.Errorf("migration failed: %w", err)
