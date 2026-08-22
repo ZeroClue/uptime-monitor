@@ -254,6 +254,13 @@
         return pid ? path + '?project_id=' + encodeURIComponent(pid) : path;
     }
 
+
+    function escapeHtml(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     // Rules
     async function loadRules() {
         rules = await apiGet(scopeUrl('/api/alert-rules'));
@@ -264,7 +271,7 @@
         const tbody = document.getElementById('rulesBody');
         tbody.innerHTML = (rules || []).map(r => `
             <tr>
-                <td>${r.metric}</td>
+                <td>${escapeHtml(r.metric)}</td>
                 <td>${r.scope}${r.host_id ? ' (Host ' + r.host_id + ')' : ''}</td>
                 <td class="num">${r.warning}</td>
                 <td class="num">${r.critical}</td>
@@ -372,9 +379,9 @@
         const tbody = document.getElementById('channelsBody');
         tbody.innerHTML = (channels || []).map(c => `
             <tr>
-                <td>${c.name}</td>
+                <td>${escapeHtml(c.name)}</td>
                 <td>${c.type}</td>
-                <td class="mono" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${c.config}</td>
+                <td class="mono" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(c.config)}</td>
                 <td>${c.enabled ? '<span class="status ok">ON</span>' : '<span class="status down">OFF</span>'}</td>
                 <td>
                     <button class="btn-sm" onclick="editChannel(${c.id})">Edit</button>
@@ -430,7 +437,7 @@
         const tbody = document.getElementById('tokensBody');
         tbody.innerHTML = tokens.map(t => `
             <tr>
-                <td>${t.name}</td>
+                <td>${escapeHtml(t.name)}</td>
                 <td>${t.scopes || 'read'}</td>
                 <td>${t.expires_at ? new Date(t.expires_at).toLocaleDateString() : 'Never'}</td>
                 <td>${t.last_used_at ? new Date(t.last_used_at).toLocaleString() : 'Never'}</td>

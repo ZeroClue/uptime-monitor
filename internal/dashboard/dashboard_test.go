@@ -327,3 +327,18 @@ func TestIndex_IncludesProjectColumnWhenMultiple(t *testing.T) {
 		t.Error("project column should appear with >1 project")
 	}
 }
+
+func TestDeleteDefaultProject_Blocked(t *testing.T) {
+	s := newTestServer(t)
+	ctx := context.Background()
+	id, err := s.db.CreateProject(ctx, &storage.Project{Name: "defy", Type: "explicit", IsDefault: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodDelete, "/api/projects/"+strconv.FormatInt(id, 10), nil)
+	rec := httptest.NewRecorder()
+	s.handleAPIProjectByID(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 deleting default project, got %d", rec.Code)
+	}
+}

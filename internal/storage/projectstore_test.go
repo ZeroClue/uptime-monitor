@@ -325,3 +325,46 @@ func TestSeedHosts_UpsertSemantics(t *testing.T) {
 		t.Errorf("fresh host timeout not seeded: %v", fresh.Timeout)
 	}
 }
+
+func TestSingleDefaultInvariant(t *testing.T) {
+	db := newTestProjectDB(t)
+	ctx := context.Background()
+
+	a, err := db.CreateProject(ctx, &Project{Name: "alpha", Type: "explicit", IsDefault: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := db.CreateProject(ctx, &Project{Name: "beta", Type: "explicit", IsDefault: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defaults := 0
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM projects WHERE is_default = 1`).Scan(&defaults); err != nil {
+		t.Fatal(err)
+	}
+	if defaults != 1 {
+		t.Fatalf("expected exactly 1 default after creating second default, got %d", defaults)
+	}
+	var which string
+	db.QueryRowContext(ctx, `SELECT name FROM projects WHERE is_default = 1`).Scan(&which)
+	if which != "beta" {
+		t.Fatalf("latest promote should win, got %q", which)
+	}
+
+	// Demote beta via update; alpha stays non-default (no auto-promotion), zero defaults allowed transiently.
+	gotB, _ := db.GetProject(ctx, b)
+	gotB.IsDefault = false
+	if err := db.UpdateProject(ctx, gotB); err != nil {
+		t.Fatal(err)
+	}
+	gotA, _ := db.GetProject(ctx, a)
+	gotA.IsDefault = true
+	if err := db.UpdateProject(ctx, gotA); err != nil {
+		t.Fatal(err)
+	}
+	db.QueryRowContext(ctx, `SELECT COUNT(*) FROM projects WHERE is_default = 1`).Scan(&defaults)
+	if defaults != 1 {
+		t.Fatalf("update path broke invariant: %d defaults", defaults)
+	}
+}

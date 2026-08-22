@@ -161,12 +161,18 @@
         if (!res.ok) throw new Error('HTTP ' + res.status);
     }
 
+    function escapeHtml(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
     async function fillProjectSelect(selectedId) {
         const select = document.getElementById('hostProject');
         try {
             const projects = await apiGet('/api/projects');
             select.innerHTML = '<option value="">— none —</option>' +
-                projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+                projects.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('');
         } catch (err) {
             select.innerHTML = '<option value="">— none —</option>';
         }
