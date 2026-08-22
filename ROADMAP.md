@@ -64,23 +64,25 @@
 
 ## 📋 Phase 3: Architecture & Usability (MEDIUM PRIORITY)
 
+> ✅ **Complete** — shipped across PRs #89–#102; epic #55 closed.
+
 ### Configuration Management
-- [ ] **Move hosts.yaml to DB** - CRUD UI for host management
-- [ ] **Move thresholds.yaml to DB** - CRUD UI for alert rules
-- [ ] **Projects as isolation boundaries** - multi-tenancy
-- [ ] **API tokens** - for external integrations
+- [x] **Move hosts.yaml to DB** - CRUD UI for host management
+- [x] **Move thresholds.yaml to DB** - CRUD UI for alert rules
+- [x] **Projects as isolation boundaries** - multi-tenancy
+- [x] **API tokens** - for external integrations
 
 ### Collector Enhancements
-- [ ] **Local collector mode** - monitor localhost without SSH
-- [ ] **SNMP collector** - for network devices
-- [ ] **Prometheus remote write** - export metrics
-- [ ] **Custom script collector** - user-defined commands
+- [x] **Local collector mode** - monitor localhost without SSH
+- [x] **SNMP collector** - for network devices
+- [x] **Prometheus remote write** - export metrics
+- [x] **Custom script collector** - user-defined commands
 
 ### Reliability
-- [ ] **Health check improvements** - per-host connectivity status
-- [ ] **Collector timeout config** - per-host
-- [ ] **Retry logic** - exponential backoff for failed polls
-- [ ] **SSH known_hosts management** - auto-accept or config
+- [x] **Health check improvements** - per-host connectivity status
+- [x] **Collector timeout config** - per-host
+- [x] **Retry logic** - exponential backoff for failed polls
+- [x] **SSH known_hosts management** - auto-accept or config
 
 ---
 

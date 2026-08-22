@@ -14,7 +14,24 @@ hosts:
     timeout: 10s
     proxy_jump: ""
     tags: [web, prod]
-    # collector_preference: ""  # Optional: force "psutil" | "procfs" | "tailscale"
+    # collector_preference: ""  # Optional: force "psutil" | "procfs" | "snmp" | "tailscale" | "custom"
+
+  # Example: SNMP-capable network device (switch/router/firewall)
+  - name: core-switch
+    connection: snmp        # polled via gosnmp; port defaults to 161
+    endpoint: 10.0.0.254
+    port: 161
+    snmp_version: "2c"      # "2c" (community) or "3" (user-based)
+    snmp_community: public
+    # v3 alternative:
+    # snmp_v3_user: monitor
+    # snmp_v3_auth_proto: SHA        # MD5 | SHA | SHA256 | SHA512
+    # snmp_v3_auth_pass: secret
+    # snmp_v3_priv_proto: AES        # DES | AES | AES192 | AES256
+    # snmp_v3_priv_pass: secret
+    snmp_extra_oids: |       # optional extra OIDs -> snmp.custom.<metric>
+      1.3.6.1.4.1.9.9.109.1.1.1.1.7.1 cpm_cpu_pct
+    tags: [network]
 
   # Example: SSH host without Python/psutil (falls back to /proc + df)
   - name: legacy-db
