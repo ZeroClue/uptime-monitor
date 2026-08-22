@@ -26,7 +26,10 @@ services:
       - SYS_MODULE
     devices:
       - /dev/net/tun:/dev/net/tun
-    network_mode: host
+    # NOTE: no network_mode: host here — this Docker install sandboxes
+    # host-networking listeners where operators cannot reach them, which
+    # silently discarded the published port below. Outbound polling
+    # (incl. MagicDNS/Tailnet targets) is unaffected by publishing instead.
     restart: unless-stopped
     healthcheck:
       # busybox wget: the runtime image ships no curl.
