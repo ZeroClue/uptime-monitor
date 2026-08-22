@@ -230,12 +230,12 @@
         const tbody = document.getElementById('hostsBody');
         tbody.innerHTML = hosts.map(h => `
             <tr>
-                <td>${h.name}</td>
-                <td>${h.connection}</td>
-                <td>${h.endpoint}</td>
+                <td>${escapeHtml(h.name)}</td>
+                <td>${escapeHtml(h.connection)}</td>
+                <td>${escapeHtml(h.endpoint)}</td>
                 <td>${h.port}</td>
-                <td>${h.user}</td>
-                <td class="mono" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${h.key_path || ''}</td>
+                <td>${escapeHtml(h.user)}</td>
+                <td class="mono" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(h.key_path || '')}</td>
                 <td>${h.sudo ? '✓' : '✗'}</td>
                 <td>
                     <button class="btn-sm" onclick="editHost(${h.id})">Edit</button>
