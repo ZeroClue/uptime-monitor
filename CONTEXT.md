@@ -12,7 +12,7 @@
 
 **Aggregate** — Downsampled metric (1-min, 1-hour) for long-term retention and fast dashboard queries.
 
-**Collector** — A strategy for fetching metrics from a host. Multiple collectors tried in order until one succeeds.
+**Collector** — A strategy for fetching metrics from a host. Multiple collectors tried in order until one succeeds. The **custom** collector runs a user-defined command over SSH and parses stdout (JSON array of `{metric, value, timestamp?}`, CSV `metric,value[,unix_ts]`, or plain number) into the `custom.<script_name>.*` namespace; selected via `collector_preference: custom`.
 
 **Connection** — How the Monitor reaches a Host: SSH (with key), Tailscale IP, Local (procfs of the machine running the Monitor; `HOST_PROC` override for container deployments), or VPN endpoint.
 
@@ -40,10 +40,14 @@ hosts:
     timeout: 10s             # connection + command timeout
     proxy_jump: ""           # optional SSH proxy jump host
     tags: [web, prod]        # for grouping / project queries
-    collector_preference: "" # optional: force specific collector
+    collector_preference: "" # optional: force specific collector (psutil|procfs|tailscale|custom)
     retry_max_retries: 5     # optional per-host retry overrides; unset = global
     retry_base_delay: 500ms
     retry_max_delay: 15s
+
+# Custom script config is NOT in hosts.yaml: script_name, script_command and
+# script_parse are DB-owned per-host fields edited via the dashboard/API
+# (with a Test Run endpoint), like other operations data.
 ```
 
 ## Settled Decisions
@@ -57,10 +61,11 @@ hosts:
 | Raw retention | 7 days | Debugging window |
 | 1-min aggregate retention | 90 days | Operational dashboards |
 | 1-hour aggregate retention | Forever | Capacity planning |
-| Collector fallback order | 1) Local procfs (connection=local only) 2) SSH+psutil 3) SSH+/proc+df 4) Tailscale+same 5) SNMP/node_exporter (later) | Progressive enhancement; works on any Linux host |
+| Collector fallback order | 1) Local procfs (connection=local only) 2) SSH+psutil 3) SSH+/proc+df 4) Tailscale+same 5) Custom script (preference=custom only) 6) SNMP/node_exporter (later) | Progressive enhancement; works on any Linux host |
 | Failed polls retry with exponential backoff; auth/host-key errors never retry | Transient faults shouldn't flap hosts down; permanent failures shouldn't burn attempts | Retrying auth would lock accounts; backoff bounds thundering-herd on recovery |
 | Alert rules/channels with a project apply only within it; project-less ones are global | Isolation without forcing everyone to assign projects | Global rules remain useful for single-project installs |
-| hosts.yaml owns host **connectivity** (connection type, endpoint, port, user, key, sudo, proxy, tags); the DB owns host **operations** (timeouts, retries, key policy, collector preference) after first seed | yaml is the deployment source of truth; operators tune behavior via UI/API without losing edits on restart | Changing connectivity in code but not yaml would drift from declared infrastructure |
+| hosts.yaml owns host **connectivity** (connection type, endpoint, port, user, key, sudo, proxy, tags); the DB owns host **operations** (timeouts, retries, key policy, collector preference, scripts) after first seed | yaml is the deployment source of truth; operators tune behavior via UI/API without losing edits on restart | Changing connectivity in code but not yaml would drift from declared infrastructure |
+| Custom script collector | User-defined command over SSH; stdout parsed as JSON `{metric,value,timestamp}` / CSV / plain number into `custom.<script_name>.*`; 1 MiB output + 1000-sample caps; per-host Timeout bounds each run; scripts are DB-owned (never in yaml); allowlist/sandbox deferred to v2 | Monitors anything built-ins miss with zero code; caps bound runaway output |
 | Core metric schema | cpu, mem, disk, net, uptime namespaces (see CONTEXT.md) | Covers 90% of infra monitoring needs |
 | GPU / per-process / containers | Deferred to v2 | Out of scope for MVP |
 | Real-time updates | Poll on load + manual refresh | No WebSocket complexity |

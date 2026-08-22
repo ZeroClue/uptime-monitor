@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -356,5 +358,165 @@ func TestAPIHosts_UnscopedReturnsAll(t *testing.T) {
 	}
 	if len(hosts) != 2 {
 		t.Fatalf("typed-nil scope filter leaked: expected all 2 hosts, got %d", len(hosts))
+	}
+	for _, h := range hosts {
+		if h.Endpoint == "" || h.Connection == "" || h.Port == 0 {
+			t.Errorf("host %q: /api/hosts must return full records for the config table/edit modal: %+v", h.Name, h)
+		}
+	}
+}
+
+type fakeScriptRunner struct {
+	got         collector.Host
+	hadDeadline bool
+	samples     []collector.Sample
+	err         error
+}
+
+func (f *fakeScriptRunner) Name() string { return "custom" }
+
+func (f *fakeScriptRunner) Collect(ctx context.Context, h collector.Host) ([]collector.Sample, error) {
+	f.got = h
+	_, f.hadDeadline = ctx.Deadline()
+	return f.samples, f.err
+}
+
+func scriptTestServer(t *testing.T) (*Server, *storage.DB, int64, *fakeScriptRunner) {
+	t.Helper()
+	s := newTestServer(t)
+	db := s.db
+	runner := &fakeScriptRunner{}
+	s.scriptRunner = runner
+	id, err := db.CreateHost(context.Background(), &storage.Host{
+		Name: "script-host", Connection: "ssh", Endpoint: "10.9.9.9", Port: 2200,
+		User: "svc", TimeoutRaw: (15 * time.Second).Nanoseconds(),
+		ScriptName: "stored-script", ScriptCommand: `stats --host {{.Host}}`, ScriptParse: "json",
+	})
+	if err != nil {
+		t.Fatalf("create host: %v", err)
+	}
+	return s, db, id, runner
+}
+
+func TestAPIHostScriptTest_AppliesOverridesAndReturnsSamples(t *testing.T) {
+	s, _, id, runner := scriptTestServer(t)
+	runner.samples = []collector.Sample{
+		{Metric: "custom.t.depth", Value: 3, Timestamp: time.Now(), Collector: "custom"},
+	}
+
+	body := strings.NewReader(`{"script_name":"draft","script_command":"run --port {{.Port}}","script_parse":"csv"}`)
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/hosts/%d/scripts/test", id), body)
+	rec := httptest.NewRecorder()
+	s.handleAPIHostScriptTest(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if runner.got.ScriptName != "draft" || runner.got.ScriptCommand != "run --port {{.Port}}" || runner.got.ScriptParse != "csv" {
+		t.Errorf("overrides not applied: %+v", runner.got)
+	}
+	if runner.got.Endpoint != "10.9.9.9" || runner.got.Port != 2200 || runner.got.User != "svc" || runner.got.Timeout != 15*time.Second {
+		t.Errorf("stored connection details not mapped: %+v", runner.got)
+	}
+
+	var out struct {
+		Count   int                `json:"count"`
+		Samples []collector.Sample `json:"samples"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("bad JSON: %v", err)
+	}
+	if out.Count != 1 || len(out.Samples) != 1 || out.Samples[0].Metric != "custom.t.depth" || out.Samples[0].Value != 3 {
+		t.Errorf("unexpected response: %+v", out)
+	}
+	if out.Samples[0].Timestamp.IsZero() {
+		t.Error("timestamp lost in encoding")
+	}
+}
+
+func TestAPIHostScriptTest_UsesStoredScriptWhenBodyEmpty(t *testing.T) {
+	s, _, id, runner := scriptTestServer(t)
+
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/hosts/%d/scripts/test", id), nil)
+	rec := httptest.NewRecorder()
+	s.handleAPIHostScriptTest(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if runner.got.ScriptName != "stored-script" || runner.got.ScriptCommand != `stats --host {{.Host}}` || runner.got.ScriptParse != "json" {
+		t.Errorf("stored script not used: %+v", runner.got)
+	}
+}
+
+func TestAPIHostScriptTest_CollectorTimeoutBoundsRequest(t *testing.T) {
+	s, db, id, runner := scriptTestServer(t)
+	ctx := context.Background()
+
+	collected, err := db.GetHost(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	timeoutMs := int64(5000)
+	collected.CollectorTimeoutMs = &timeoutMs
+	if err := db.UpdateHost(ctx, collected); err != nil {
+		t.Fatal(err)
+	}
+	runner.hadDeadline = false
+
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/hosts/%d/scripts/test", id), nil)
+	rec := httptest.NewRecorder()
+	s.handleAPIHostScriptTest(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !runner.hadDeadline {
+		t.Error("collector timeout did not bound the test run context")
+	}
+}
+
+func TestAPIHostScriptTest_UnknownHost(t *testing.T) {
+	s, _, _, _ := scriptTestServer(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/hosts/999/scripts/test", nil)
+	rec := httptest.NewRecorder()
+	s.handleAPIHostScriptTest(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rec.Code)
+	}
+}
+
+func TestAPIHostScriptTest_BadJSON(t *testing.T) {
+	s, _, id, _ := scriptTestServer(t)
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/hosts/%d/scripts/test", id), strings.NewReader("{nope"))
+	rec := httptest.NewRecorder()
+	s.handleAPIHostScriptTest(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+}
+
+func TestAPIHostScriptTest_RunErrorSurfaces(t *testing.T) {
+	s, _, id, runner := scriptTestServer(t)
+	runner.err = errors.New("exit status 1: stats not found")
+
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/hosts/%d/scripts/test", id), nil)
+	rec := httptest.NewRecorder()
+	s.handleAPIHostScriptTest(rec, req)
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "stats not found") {
+		t.Errorf("error detail missing from response: %q", rec.Body.String())
+	}
+}
+
+func TestAPIHosts_RoutesScriptTestPath(t *testing.T) {
+	s, _, id, _ := scriptTestServer(t)
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/hosts/%d/scripts/test", id), nil)
+	rec := httptest.NewRecorder()
+	s.handleAPIHosts(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected script-test routing via handleAPIHosts, got %d: %s", rec.Code, rec.Body.String())
 	}
 }

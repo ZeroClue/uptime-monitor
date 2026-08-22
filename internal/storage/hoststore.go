@@ -142,6 +142,21 @@ var hostFields = []hostField{
 		bind: func(h *Host) any { return nullIfZero(h.CollectorTimeoutMs) },
 		scan: nullableIntScan(func(h *Host, v int64) { h.CollectorTimeoutMs = &v }),
 	},
+	{
+		name: "script_name",
+		bind: func(h *Host) any { return h.ScriptName },
+		scan: func(h *Host) (any, func()) { return &h.ScriptName, nil },
+	},
+	{
+		name: "script_command",
+		bind: func(h *Host) any { return h.ScriptCommand },
+		scan: func(h *Host) (any, func()) { return &h.ScriptCommand, nil },
+	},
+	{
+		name: "script_parse",
+		bind: func(h *Host) any { return h.ScriptParse },
+		scan: func(h *Host) (any, func()) { return &h.ScriptParse, nil },
+	},
 }
 
 func nullableIntScan(set func(*Host, int64)) func(*Host) (any, func()) {

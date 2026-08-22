@@ -217,22 +217,7 @@ func effectivePlan(global config.RetryConfig, host storage.Host) retryPlan {
 
 func (s *Scheduler) pollHost(ctx context.Context, host storage.Host) {
 	start := time.Now()
-	collectorHost := collector.Host{
-		ID:                  host.ID,
-		Name:                host.Name,
-		Connection:          host.Connection,
-		Endpoint:            host.Endpoint,
-		Port:                host.Port,
-		User:                host.User,
-		KeyPath:             host.KeyPath,
-		Sudo:                host.Sudo,
-		Timeout:             host.Timeout,
-		SSHTimeout:          durationFromMs(host.SshTimeoutMs),
-		CollectorTimeout:    durationFromMs(host.CollectorTimeoutMs),
-		SSHHostKeyPolicy:    derefString(host.SSHHostKeyPolicy),
-		ProxyJump:           host.ProxyJump,
-		CollectorPreference: host.CollectorPreference,
-	}
+	collectorHost := CollectorHostFor(host)
 
 	collectCtx := ctx
 	if host.CollectorTimeoutMs != nil && *host.CollectorTimeoutMs > 0 {

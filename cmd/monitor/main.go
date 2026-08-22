@@ -92,6 +92,7 @@ func main() {
 		collector.NewPsutilCollector(collector.WithPsutilSSHClient(sshClient)),
 		collector.NewProcfsCollector(collector.WithProcfsSSHClient(sshClient)),
 		collector.NewTailscaleCollector(collector.WithTailscaleSSHClient(sshClient)),
+		collector.NewCustomCollector(collector.WithCustomSSHClient(sshClient), collector.WithCustomLogger(logger)),
 	)
 
 	sched := scheduler.NewWithRetry(cfg.PollInterval, db, collectorChain, logger, cfg.Retry)

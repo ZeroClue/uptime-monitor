@@ -62,6 +62,9 @@ type Host struct {
 	CollectorTimeoutMs  *int64        `json:"collector_timeout_ms"` // whole-collect budget; default 30s
 	ProjectID           *int64        `json:"project_id"`
 	SSHHostKeyPolicy    *string       `json:"ssh_host_key_policy"` // nil = inherit global (auto|strict|known)
+	ScriptName          string        `json:"script_name"`         // custom collector: namespace custom.<script_name>.*
+	ScriptCommand       string        `json:"script_command"`      // custom collector: command template over {{.Host}}/{{.Port}}
+	ScriptParse         string        `json:"script_parse"`        // custom collector: json (default) | csv | plain
 }
 
 type Alert struct {
