@@ -43,9 +43,13 @@ open http://localhost:8080
 │ │ (/proc + df)    │ │ │ (samples +      │ │ │ (SSH + parsing) │ │ │ Detail  │ │
 │ └────────┬────────┘ │ │  downsampling)  │ │ └────────┬────────┘ │ └────┬────┘ │
 │ ┌────────▼────────┐ │ ┌────────▼────────┐ │ ┌────────▼────────┐ │ ┌────▼────┐ │
-│ │ TailscaleColl.  │ │ │ AlertStore      │ │ │ Downsampler     │ │ │Compare  │ │
-│ │ (via Procfs)    │ │ │ (alerts CRUD)   │ │ │ (1m tick)       │ │ │Projects │ │
+│ │ SNMPCollector   │ │ │ AlertStore      │ │ │ Downsampler     │ │ │Compare  │ │
+│ │ (IF-MIB, HR/UCD)│ │ │ (alerts CRUD)   │ │ │ (1m tick)       │ │ │Projects │ │
 │ └─────────────────┘ │ └────────┬────────┘ │ └────────┬────────┘ │ └────┬────┘ │
+│ ┌─────────────────┐ │                        │                  │           │
+│ │ CustomCollector │ │         (also          │        (also     │   (also   │
+│ │ (user scripts)  │ │      shown above)      │   shown above)   │   above)  │
+│ └─────────────────┘ │                        │                  │           │
 │       │             │ ┌────────▼────────┐ │ ┌────────▼────────┐ │ ┌────▼────┐ │
 │       └─────────────►│ SSHClient       │ │ │ Cleanup         │ │ │ Alerts  │ │
 │        (SSH transport)│ (internal/ssh)  │ │ │ (daily tick)    │ │ │Monitor  │ │
@@ -98,7 +102,7 @@ open http://localhost:8080
 ```yaml
 hosts:
   - name: web-01
-    connection: ssh           # ssh | tailscale
+    connection: ssh           # ssh | tailscale | local | snmp
     endpoint: 10.0.0.5
     port: 22
     user: monitor
@@ -109,8 +113,10 @@ hosts:
     collector_timeout: 30s    # optional: whole-collect budget (default 30s)
     proxy_jump: ""
     tags: [web, prod]
-    collector_preference: ""  # optional: force specific collector
+    collector_preference: ""  # optional: psutil | procfs | snmp | tailscale | custom
 ```
+
+SNMP hosts add `snmp_version`, `snmp_community` or v3 params (`snmp_v3_user/auth_proto/auth_pass/priv_proto/priv_pass`) plus optional `snmp_extra_oids`; custom-script hosts configure `script_name/script_command/script_parse` in the dashboard instead. See CONTEXT.md for the full schema.
 
 ### Alert Rules & Channels
 
@@ -287,6 +293,14 @@ For true keyless SSH via Tailscale's ACL-based authentication, the monitor can r
 - SSH connections to `tag:server` hosts are authenticated via Tailscale's CA — no SSH keys needed
 - Collector uses `connection: tailscale` to indicate Tailscale IP reachability
 
+#### Variant: Host Networking
+
+With `network_mode: host` the container shares the host's network namespace: MagicDNS resolves through whichever tailscaled serves the host, and Tailscale SSH authenticates by tailnet identity with or without an in-container `TS_AUTHKEY`. One requirement remains regardless of auth mode: with `ssh_host_key_policy: strict` the monitor verifies each target's host key against `/config/known_hosts`, so seed it once:
+
+```bash
+ssh-keyscan vm1.nyala-tegu.ts.net vm2.nyala-tegu.ts.net >> config/known_hosts
+```
+
 #### Alternative: Tailscale Sidecar (for separation)
 
 If you prefer separate containers:
@@ -333,6 +347,9 @@ Then configure hosts with `connection: tailscale` and they'll route through the 
 | `GET /api/alerts` | List all alerts; `?project_id=` scopes to a project, `?host_id=` to a host; `POST ?action=acknowledge&id=` or `?action=silence&id=&duration=` |
 | `GET /api/monitor` | Self-monitoring stats + collector status |
 | `GET /api/projects` | Project list with health status |
+| `POST /api/hosts/:id/scripts/test` | Dry-run a custom script against saved connection details (optional JSON body overrides) |
+| `GET \| PUT /api/settings/remotewrite` | Global Prometheus remote write configuration |
+| `GET /metrics` | Remote write exporter health (Prometheus text format; unauthenticated like `/healthz`) |
 
 ### Projects
 
@@ -431,6 +448,10 @@ Metrics are named `<namespace>.<metric>` and auto-discovered by the host detail 
 | `net.udp.*` | `CLOSE`, `total` |
 | `system.*` | `process_count` |
 | `uptime.seconds` | Seconds since boot (alerts support `below: true`) |
+| `snmp.iface.<name>.*` | `in_octets`, `out_octets`, `in_errors`, `out_errors` (counters), `up` gauge |
+| `snmp.cpu.*` / `snmp.mem.*` / `snmp.disk.<descr>.*` / `snmp.load.*` | From HOST-RESOURCES-MIB and UCD-SNMP-MIB |
+| `snmp.custom.<metric>` | User-defined extra OIDs |
+| `custom.<script_name>.*` | Metrics emitted by per-host custom scripts (JSON/CSV/plain) |
 
 ### Theming
 
