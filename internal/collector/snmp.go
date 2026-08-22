@@ -40,9 +40,9 @@ const (
 	oidUcdMemTotalReal = "1.3.6.1.4.1.2021.4.5.0"
 )
 
-// snmpSession is the slice of gosnmp the collector needs; fakes implement it
+// SnmpSession is the slice of gosnmp the collector needs; fakes implement it
 // in tests.
-type snmpSession interface {
+type SnmpSession interface {
 	Get(oids []string) ([]gosnmp.SnmpPDU, error)
 	BulkWalkAll(root string) ([]gosnmp.SnmpPDU, error)
 	Close() error
@@ -52,12 +52,12 @@ type snmpSession interface {
 // MIBs onto snmp.* metrics.
 type SNMPCollector struct {
 	logger *slog.Logger
-	dialer func(host Host) (snmpSession, error)
+	dialer func(host Host) (SnmpSession, error)
 }
 
 type SNMPOption func(*SNMPCollector)
 
-func WithSNMPDialer(d func(host Host) (snmpSession, error)) SNMPOption {
+func WithSNMPDialer(d func(host Host) (SnmpSession, error)) SNMPOption {
 	return func(c *SNMPCollector) { c.dialer = d }
 }
 
@@ -101,10 +101,23 @@ func (c *SNMPCollector) Collect(ctx context.Context, host Host) ([]Sample, error
 	if len(samples) == 0 {
 		return nil, fmt.Errorf("snmp poll of %q returned no usable values", host.Name)
 	}
+	c.logger.Debug("snmp collect detail",
+		"host", host.Name, "endpoint", host.Endpoint,
+		"samples_by_prefix", countPrefixes(samples))
 	return samples, nil
 }
 
-func (c *SNMPCollector) collectInterfaces(session snmpSession, emit func(string, float64)) {
+func countPrefixes(samples []Sample) map[string]int {
+	out := map[string]int{}
+	for _, s := range samples {
+		parts := strings.SplitN(s.Metric, ".", 3)
+		key := strings.Join(parts[:min(2, len(parts))], ".")
+		out[key]++
+	}
+	return out
+}
+
+func (c *SNMPCollector) collectInterfaces(session SnmpSession, emit func(string, float64)) {
 	// ifName is unique per port; fall back to ifDescr text when absent.
 	names := walkIndexed(c, session, oidIfName, pduString)
 	if len(names) == 0 {
@@ -163,7 +176,7 @@ func (c *SNMPCollector) collectInterfaces(session snmpSession, emit func(string,
 	}
 }
 
-func (c *SNMPCollector) collectHostResources(session snmpSession, emit func(string, float64)) {
+func (c *SNMPCollector) collectHostResources(session SnmpSession, emit func(string, float64)) {
 	// hrProcessorLoad is per-CPU percentage; average it into one gauge.
 	loads := walkIndexed(c, session, oidHrProcessorLoadPrefix, pduToFloat)
 	if len(loads) > 0 {
@@ -176,7 +189,7 @@ func (c *SNMPCollector) collectHostResources(session snmpSession, emit func(stri
 	c.collectStorageTable(session, emit)
 }
 
-func (c *SNMPCollector) collectUCD(session snmpSession, emit func(string, float64)) {
+func (c *SNMPCollector) collectUCD(session SnmpSession, emit func(string, float64)) {
 	gets := getValues(session, oidUcdLoad1, oidUcdLoad5, oidUcdLoad15, oidUcdMemAvailReal, oidUcdMemTotalReal)
 
 	loadNames := map[string]string{oidUcdLoad1: "snmp.load.1m", oidUcdLoad5: "snmp.load.5m", oidUcdLoad15: "snmp.load.15m"}
@@ -193,7 +206,7 @@ func (c *SNMPCollector) collectUCD(session snmpSession, emit func(string, float6
 	}
 }
 
-func (c *SNMPCollector) collectStorageTable(session snmpSession, emit func(string, float64)) {
+func (c *SNMPCollector) collectStorageTable(session SnmpSession, emit func(string, float64)) {
 	types := walkIndexed(c, session, oidHrStorageType, rawOID)
 	descrs := walkIndexed(c, session, oidHrStorageDescr, pduString)
 	units := walkIndexed(c, session, oidHrStorageUnit, pduToFloat)
@@ -217,7 +230,7 @@ func (c *SNMPCollector) collectStorageTable(session snmpSession, emit func(strin
 	}
 }
 
-func (c *SNMPCollector) collectExtraOIDs(session snmpSession, spec string, emit func(string, float64)) {
+func (c *SNMPCollector) collectExtraOIDs(session SnmpSession, spec string, emit func(string, float64)) {
 	extra := parseExtraOIDs(spec)
 	if len(extra) == 0 {
 		return
@@ -274,7 +287,12 @@ func pduToFloat(pdu gosnmp.SnmpPDU) (float64, bool) {
 	return 0, false
 }
 
+// indexSuffix extracts the row index portion of a walked OID. gosnmp may
+// render PDU names with or without a leading dot depending on version;
+// normalize both sides before matching.
 func indexSuffix(oid, base string) string {
+	oid = strings.TrimPrefix(oid, ".")
+	base = strings.TrimPrefix(base, ".")
 	return strings.TrimPrefix(oid, base+".")
 }
 
@@ -292,7 +310,7 @@ func pduString(p gosnmp.SnmpPDU) (string, bool) {
 
 // walkIndexed BulkWalks base and keys results by the index suffix under it,
 // logging (not swallowing) transport errors so partial MIB breakage shows up.
-func walkIndexed[T any](c *SNMPCollector, session snmpSession, base string, extract func(gosnmp.SnmpPDU) (T, bool)) map[string]T {
+func walkIndexed[T any](c *SNMPCollector, session SnmpSession, base string, extract func(gosnmp.SnmpPDU) (T, bool)) map[string]T {
 	pdus, err := session.BulkWalkAll(base)
 	if err != nil {
 		c.logger.Warn("snmp walk failed", "oid", base, "error", err)
@@ -304,10 +322,11 @@ func walkIndexed[T any](c *SNMPCollector, session snmpSession, base string, extr
 			out[indexSuffix(p.Name, base)] = v
 		}
 	}
+	c.logger.Debug("snmp walk detail", "oid", base, "pdus", len(pdus), "kept", len(out))
 	return out
 }
 
-func getValues(session snmpSession, oids ...string) map[string]float64 {
+func getValues(session SnmpSession, oids ...string) map[string]float64 {
 	if len(oids) == 0 {
 		return nil
 	}
@@ -322,9 +341,10 @@ func getValues(session snmpSession, oids ...string) map[string]float64 {
 			continue
 		}
 		if v, ok := pduToFloat(p); ok {
-			out[p.Name] = v
+			out[strings.TrimPrefix(p.Name, ".")] = v
 		}
 	}
+	slog.Debug("snmp get detail", "oids", strings.Join(oids, ","), "vars", len(pdus), "kept", len(out))
 	return out
 }
 

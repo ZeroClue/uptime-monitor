@@ -14,7 +14,7 @@ const (
 
 // dialSNMP opens an SNMP session for the host's connection settings. The
 // per-host Timeout (DB-owned operations data) bounds each exchange.
-func dialSNMP(host Host) (snmpSession, error) {
+func dialSNMP(host Host) (SnmpSession, error) {
 	port := host.Port
 	if port == 0 {
 		port = 161

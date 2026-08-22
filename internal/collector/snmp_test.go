@@ -291,7 +291,7 @@ func TestSNMPCollector_SessionClosed(t *testing.T) {
 		},
 		walk: func(string) ([]gosnmp.SnmpPDU, error) { return nil, nil },
 	}
-	c := NewSNMPCollector(WithSNMPDialer(func(Host) (snmpSession, error) { return session, nil }))
+	c := NewSNMPCollector(WithSNMPDialer(func(Host) (SnmpSession, error) { return session, nil }))
 	if _, err := c.Collect(context.Background(), snmpTestHost()); err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +302,7 @@ func TestSNMPCollector_SessionClosed(t *testing.T) {
 
 func collectWith(t *testing.T, session *fakeSNMPSession, mutate func(*Host)) []Sample {
 	t.Helper()
-	c := NewSNMPCollector(WithSNMPDialer(func(Host) (snmpSession, error) { return session, nil }))
+	c := NewSNMPCollector(WithSNMPDialer(func(Host) (SnmpSession, error) { return session, nil }))
 	host := snmpTestHost()
 	if mutate != nil {
 		mutate(&host)
@@ -481,5 +481,50 @@ func TestSNMPCollector_IfNamePreferredOverDescr(t *testing.T) {
 	}
 	if _, ok := got["snmp.iface.gigabitethernet0/1.in_octets"]; ok {
 		t.Error("ifDescr leaked despite ifName being present")
+	}
+}
+
+// TestSNMPCollector_LeadingDotPDUNames pins the fix for gosnmp v1.38, which
+// renders walked/GET PDU names with a LEADING DOT. Without normalization the
+// interface display-name join and UCD scalar lookups silently miss and only
+// hrProcessorLoad (whose averaging ignores keys) survives.
+func TestSNMPCollector_LeadingDotPDUNames(t *testing.T) {
+	session := &fakeSNMPSession{
+		get: func(oids []string) ([]gosnmp.SnmpPDU, error) {
+			var out []gosnmp.SnmpPDU
+			for _, o := range oids {
+				switch o {
+				case oidUcdMemTotalReal:
+					out = append(out, pdu("."+oidUcdMemTotalReal, gosnmp.Integer, int(8000)))
+				case oidUcdMemAvailReal:
+					out = append(out, pdu("."+oidUcdMemAvailReal, gosnmp.Integer, int(2000)))
+				default:
+					out = append(out, pdu("."+o, gosnmp.NoSuchObject, nil))
+				}
+			}
+			return out, nil
+		},
+		walk: func(root string) ([]gosnmp.SnmpPDU, error) {
+			switch root {
+			case oidIfName:
+				return []gosnmp.SnmpPDU{
+					pdu("."+oidIfName+".1", gosnmp.OctetString, []byte("eth0")),
+				}, nil
+			case oidIfInOctets:
+				return []gosnmp.SnmpPDU{
+					pdu("."+oidIfInOctets+".1", gosnmp.Counter32, uint32(5000)),
+				}, nil
+			default:
+				return nil, nil
+			}
+		},
+	}
+
+	got := sampleMap(collectWith(t, session, nil))
+	if got["snmp.iface.eth0.in_octets"] != 5000 {
+		t.Errorf("leading-dot walk names broke iface join: %v", got)
+	}
+	if got["snmp.mem.total_bytes"] != 8192000 || got["snmp.mem.used_bytes"] != 6144000 {
+		t.Errorf("leading-dot get names broke UCD mem: %v", got)
 	}
 }
