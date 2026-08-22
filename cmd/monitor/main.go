@@ -66,13 +66,20 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := db.EnsureDefaultProject(ctx); err != nil {
-		slog.Error("failed to ensure default project", "error", err)
+	if err := db.SeedHosts(cfg.Hosts); err != nil {
+		slog.Error("failed to seed hosts", "error", err)
 		os.Exit(1)
 	}
 
-	if err := db.SeedHosts(cfg.Hosts); err != nil {
-		slog.Error("failed to seed hosts", "error", err)
+	// Bootstrap self-monitoring before project assignment so a fresh
+	// install's localhost host lands in the Default project immediately.
+	if err := db.EnsureLocalHost(ctx); err != nil {
+		slog.Error("failed to ensure localhost host", "error", err)
+		os.Exit(1)
+	}
+
+	if err := db.EnsureDefaultProject(ctx); err != nil {
+		slog.Error("failed to ensure default project", "error", err)
 		os.Exit(1)
 	}
 

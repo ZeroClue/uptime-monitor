@@ -368,3 +368,49 @@ func TestSingleDefaultInvariant(t *testing.T) {
 		t.Fatalf("update path broke invariant: %d defaults", defaults)
 	}
 }
+
+func TestEnsureLocalHost_BootstrapsEmptyTable(t *testing.T) {
+	db := newTestProjectDB(t)
+	ctx := context.Background()
+
+	if err := db.EnsureLocalHost(ctx); err != nil {
+		t.Fatalf("ensure: %v", err)
+	}
+	hosts, err := db.GetHosts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hosts) != 1 {
+		t.Fatalf("want exactly 1 bootstrapped host, got %d", len(hosts))
+	}
+	h := hosts[0]
+	if h.Name != "localhost" || h.Connection != "local" {
+		t.Errorf("unexpected bootstrap host: %+v", h)
+	}
+
+	// Idempotent across restarts.
+	if err := db.EnsureLocalHost(ctx); err != nil {
+		t.Fatal(err)
+	}
+	hosts, _ = db.GetHosts()
+	if len(hosts) != 1 {
+		t.Errorf("re-run duplicated bootstrap host: %d", len(hosts))
+	}
+}
+
+func TestEnsureLocalHost_NonEmptyTableIsNoop(t *testing.T) {
+	db := newTestProjectDB(t)
+	ctx := context.Background()
+
+	if _, err := db.CreateHost(ctx, &Host{Name: "web-01", Connection: "ssh",
+		Endpoint: "10.0.0.5", Port: 22}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.EnsureLocalHost(ctx); err != nil {
+		t.Fatal(err)
+	}
+	hosts, _ := db.GetHosts()
+	if len(hosts) != 1 || hosts[0].Name != "web-01" {
+		t.Errorf("non-empty table must be untouched: %+v", hosts)
+	}
+}
