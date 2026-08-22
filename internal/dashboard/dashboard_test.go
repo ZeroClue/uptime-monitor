@@ -359,6 +359,11 @@ func TestAPIHosts_UnscopedReturnsAll(t *testing.T) {
 	if len(hosts) != 2 {
 		t.Fatalf("typed-nil scope filter leaked: expected all 2 hosts, got %d", len(hosts))
 	}
+	for _, h := range hosts {
+		if h.Endpoint == "" || h.Connection == "" || h.Port == 0 {
+			t.Errorf("host %q: /api/hosts must return full records for the config table/edit modal: %+v", h.Name, h)
+		}
+	}
 }
 
 type fakeScriptRunner struct {

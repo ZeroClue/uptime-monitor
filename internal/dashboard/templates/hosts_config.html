@@ -147,7 +147,7 @@
                     <div class="editor-wrap">
                         <pre class="editor-highlight" id="scriptHighlight" aria-hidden="true"></pre>
                         <textarea name="script_command" id="hostScriptCommand" rows="6" spellcheck="false"
-                            placeholder='echo ''[{"metric":"depth","value":42}]''' oninput="highlightScript()"></textarea>
+                            placeholder="/opt/scripts/stats --host {{"{{.Host}}"}} --port {{"{{.Port}}"}}" oninput="highlightScript()"></textarea>
                     </div>
                     <small class="help">stdout must be a JSON array of {metric, value, timestamp?}, CSV lines "metric,value[,unix_ts]", or a plain number. Max 1 MiB / 1000 samples.</small>
                 </div>

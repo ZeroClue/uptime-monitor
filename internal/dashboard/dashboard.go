@@ -633,18 +633,10 @@ func (s *Server) handleAPIHostsGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	type HostInfo struct {
-		ID   int64  `json:"id"`
-		Name string `json:"name"`
-	}
-
-	result := make([]HostInfo, len(hosts))
-	for i, h := range hosts {
-		result[i] = HostInfo{ID: h.ID, Name: h.Name}
-	}
-
+	// Full host records, not an {id,name} projection: the config page's
+	// table and edit modal (including script fields) read every column.
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	json.NewEncoder(w).Encode(hosts)
 }
 
 func (s *Server) handleAPIHostsPost(w http.ResponseWriter, r *http.Request) {
