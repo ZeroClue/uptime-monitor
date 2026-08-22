@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -13,12 +14,13 @@ import (
 
 // Standard-MIB OIDs polled by the SNMP collector.
 const (
-	oidIfDescr      = "1.3.6.1.2.1.2.2.1.2"  // IF-MIB ifDescr
-	oidIfOperStatus = "1.3.6.1.2.1.2.2.1.8"  // ifOperStatus (1 = up)
-	oidIfInOctets   = "1.3.6.1.2.1.2.2.1.10" // ifInOctets
-	oidIfOutOctets  = "1.3.6.1.2.1.2.2.1.16" // ifOutOctets
-	oidIfInErrors   = "1.3.6.1.2.1.2.2.1.14" // ifInErrors
-	oidIfOutErrors  = "1.3.6.1.2.1.2.2.1.20" // ifOutErrors
+	oidIfDescr      = "1.3.6.1.2.1.2.2.1.2"    // IF-MIB ifDescr
+	oidIfName       = "1.3.6.1.2.1.31.1.1.1.1" // IF-MIB ifName (unique per port)
+	oidIfOperStatus = "1.3.6.1.2.1.2.2.1.8"    // ifOperStatus (1 = up)
+	oidIfInOctets   = "1.3.6.1.2.1.2.2.1.10"   // ifInOctets
+	oidIfOutOctets  = "1.3.6.1.2.1.2.2.1.16"   // ifOutOctets
+	oidIfInErrors   = "1.3.6.1.2.1.2.2.1.14"   // ifInErrors
+	oidIfOutErrors  = "1.3.6.1.2.1.2.2.1.20"   // ifOutErrors
 
 	oidHrStorageEntry        = "1.3.6.1.2.1.25.2.3.1" // HOST-RESOURCES-MIB hrStorageEntry
 	oidHrStorageType         = oidHrStorageEntry + ".2"
@@ -34,8 +36,8 @@ const (
 	oidUcdLoad1        = oidUcdLoad + ".1"
 	oidUcdLoad5        = oidUcdLoad + ".2"
 	oidUcdLoad15       = oidUcdLoad + ".3"
-	oidUcdMemAvailReal = "1.3.6.1.4.1.2021.4.11.4"
-	oidUcdMemTotalReal = "1.3.6.1.4.1.2021.4.11.5"
+	oidUcdMemAvailReal = "1.3.6.1.4.1.2021.4.6.0"
+	oidUcdMemTotalReal = "1.3.6.1.4.1.2021.4.5.0"
 )
 
 // snmpSession is the slice of gosnmp the collector needs; fakes implement it
@@ -103,10 +105,40 @@ func (c *SNMPCollector) Collect(ctx context.Context, host Host) ([]Sample, error
 }
 
 func (c *SNMPCollector) collectInterfaces(session snmpSession, emit func(string, float64)) {
-	names := walkIndexedStrings(session, oidIfDescr)
+	// ifName is unique per port; fall back to ifDescr text when absent.
+	names := walkIndexed(c, session, oidIfName, pduString)
+	if len(names) == 0 {
+		names = walkIndexed(c, session, oidIfDescr, pduString)
+	}
 	if len(names) == 0 {
 		return
 	}
+
+	// Deterministic display names: sanitize, then disambiguate duplicates
+	// (two ports sharing a description) with the ifIndex suffix.
+	idxs := make([]string, 0, len(names))
+	for idx := range names {
+		idxs = append(idxs, idx)
+	}
+	sort.Slice(idxs, func(i, j int) bool {
+		a, ea := strconv.Atoi(idxs[i])
+		b, eb := strconv.Atoi(idxs[j])
+		if ea != nil || eb != nil {
+			return idxs[i] < idxs[j]
+		}
+		return a < b
+	})
+	display := make(map[string]string, len(idxs))
+	used := map[string]bool{}
+	for _, idx := range idxs {
+		name := sanitizeMetricPart(names[idx])
+		if used[name] {
+			name = name + "_" + idx
+		}
+		used[name] = true
+		display[idx] = name
+	}
+
 	counters := map[string]struct{ metric string }{
 		oidIfInOctets:  {"in_octets"},
 		oidIfOutOctets: {"out_octets"},
@@ -114,31 +146,26 @@ func (c *SNMPCollector) collectInterfaces(session snmpSession, emit func(string,
 		oidIfOutErrors: {"out_errors"},
 	}
 	for base, col := range counters {
-		for idx, value := range walkIndexedValues(session, base) {
-			name, ok := names[idx]
-			if !ok {
-				continue
+		for idx, value := range walkIndexed(c, session, base, pduToFloat) {
+			if name, ok := display[idx]; ok {
+				emit("snmp.iface."+name+"."+col.metric, value)
 			}
-			emit("snmp.iface."+sanitizeMetricPart(name)+"."+col.metric, value)
 		}
 	}
-	statuses := walkIndexedValues(session, oidIfOperStatus)
-	for idx, raw := range statuses {
-		name, ok := names[idx]
-		if !ok {
-			continue
+	for idx, raw := range walkIndexed(c, session, oidIfOperStatus, pduToFloat) {
+		if name, ok := display[idx]; ok {
+			up := 0.0
+			if int(raw) == 1 {
+				up = 1
+			}
+			emit("snmp.iface."+name+".up", up)
 		}
-		up := 0.0
-		if int(raw) == 1 {
-			up = 1
-		}
-		emit("snmp.iface."+sanitizeMetricPart(name)+".up", up)
 	}
 }
 
 func (c *SNMPCollector) collectHostResources(session snmpSession, emit func(string, float64)) {
 	// hrProcessorLoad is per-CPU percentage; average it into one gauge.
-	loads := walkIndexedValues(session, oidHrProcessorLoadPrefix)
+	loads := walkIndexed(c, session, oidHrProcessorLoadPrefix, pduToFloat)
 	if len(loads) > 0 {
 		total := 0.0
 		for _, v := range loads {
@@ -167,11 +194,11 @@ func (c *SNMPCollector) collectUCD(session snmpSession, emit func(string, float6
 }
 
 func (c *SNMPCollector) collectStorageTable(session snmpSession, emit func(string, float64)) {
-	types := walkRawIndex(session, oidHrStorageType)
-	descrs := walkIndexedStrings(session, oidHrStorageDescr)
-	units := walkIndexedValues(session, oidHrStorageUnit)
-	sizes := walkIndexedValues(session, oidHrStorageSize)
-	useds := walkIndexedValues(session, oidHrStorageUsed)
+	types := walkIndexed(c, session, oidHrStorageType, rawOID)
+	descrs := walkIndexed(c, session, oidHrStorageDescr, pduString)
+	units := walkIndexed(c, session, oidHrStorageUnit, pduToFloat)
+	sizes := walkIndexed(c, session, oidHrStorageSize, pduToFloat)
+	useds := walkIndexed(c, session, oidHrStorageUsed, pduToFloat)
 
 	for idx, typeOID := range types {
 		descr, ok := descrs[idx]
@@ -251,45 +278,29 @@ func indexSuffix(oid, base string) string {
 	return strings.TrimPrefix(oid, base+".")
 }
 
-func walkIndexedValues(session snmpSession, base string) map[string]float64 {
-	pdus, err := session.BulkWalkAll(base)
-	if err != nil {
-		return nil
+// pduString extracts interface descriptions/names.
+func pduString(p gosnmp.SnmpPDU) (string, bool) {
+	switch v := p.Value.(type) {
+	case []byte:
+		return string(v), true
+	case string:
+		return v, true
+	default:
+		return "", false
 	}
-	out := map[string]float64{}
-	for _, p := range pdus {
-		if v, ok := pduToFloat(p); ok {
-			out[indexSuffix(p.Name, base)] = v
-		}
-	}
-	return out
 }
 
-func walkRawIndex(session snmpSession, base string) map[string]string {
+// walkIndexed BulkWalks base and keys results by the index suffix under it,
+// logging (not swallowing) transport errors so partial MIB breakage shows up.
+func walkIndexed[T any](c *SNMPCollector, session snmpSession, base string, extract func(gosnmp.SnmpPDU) (T, bool)) map[string]T {
 	pdus, err := session.BulkWalkAll(base)
 	if err != nil {
+		c.logger.Warn("snmp walk failed", "oid", base, "error", err)
 		return nil
 	}
-	out := map[string]string{}
+	out := make(map[string]T, len(pdus))
 	for _, p := range pdus {
-		if p.Type == gosnmp.ObjectIdentifier {
-			out[indexSuffix(p.Name, base)] = p.Value.(string)
-		}
-	}
-	return out
-}
-
-func walkIndexedStrings(session snmpSession, base string) map[string]string {
-	pdus, err := session.BulkWalkAll(base)
-	if err != nil {
-		return nil
-	}
-	out := map[string]string{}
-	for _, p := range pdus {
-		switch v := p.Value.(type) {
-		case []byte:
-			out[indexSuffix(p.Name, base)] = string(v)
-		case string:
+		if v, ok := extract(p); ok {
 			out[indexSuffix(p.Name, base)] = v
 		}
 	}
@@ -302,6 +313,7 @@ func getValues(session snmpSession, oids ...string) map[string]float64 {
 	}
 	pdus, err := session.Get(oids)
 	if err != nil {
+		slog.Warn("snmp get failed", "oids", strings.Join(oids, ","), "error", err)
 		return nil
 	}
 	out := map[string]float64{}
@@ -314,4 +326,13 @@ func getValues(session snmpSession, oids ...string) map[string]float64 {
 		}
 	}
 	return out
+}
+
+// rawOID extracts an OID-typed PDU's dotted string (e.g. hrStorageType).
+func rawOID(p gosnmp.SnmpPDU) (string, bool) {
+	if p.Type == gosnmp.ObjectIdentifier {
+		v, ok := p.Value.(string)
+		return v, ok
+	}
+	return "", false
 }

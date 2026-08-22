@@ -349,7 +349,7 @@ func TestDialSNMPConfigBuilding(t *testing.T) {
 				h.SNMPv3PrivPass = "pp"
 			},
 			check: func(t *testing.T, g *gosnmp.GoSNMP) {
-				if g.MsgFlags &^ gosnmp.Reportable != gosnmp.AuthPriv {
+				if g.MsgFlags&^gosnmp.Reportable != gosnmp.AuthPriv {
 					t.Errorf("flags: %v", g.MsgFlags)
 				}
 				sp := g.SecurityParameters.(*gosnmp.UsmSecurityParameters)
@@ -362,7 +362,7 @@ func TestDialSNMPConfigBuilding(t *testing.T) {
 			name:   "v3 noauthnopriv when no passwords",
 			mutate: func(h *Host) { h.SNMPVersion = "3"; h.SNMPv3User = "u" },
 			check: func(t *testing.T, g *gosnmp.GoSNMP) {
-				if g.MsgFlags &^ gosnmp.Reportable != gosnmp.NoAuthNoPriv {
+				if g.MsgFlags&^gosnmp.Reportable != gosnmp.NoAuthNoPriv {
 					t.Errorf("flags: %v", g.MsgFlags)
 				}
 			},
@@ -402,5 +402,84 @@ func TestDialSNMPConfigBuilding(t *testing.T) {
 			}
 			tc.check(t, g)
 		})
+	}
+}
+
+func TestSNMPOIDs_StandardValuesPinned(t *testing.T) {
+	// Literal pins guard against transcription drift in the const block;
+	// .4.11.x was silently wrong here once already (it's memTotalFree).
+	if oidUcdMemTotalReal != "1.3.6.1.4.1.2021.4.5.0" {
+		t.Errorf("memTotalReal: %s", oidUcdMemTotalReal)
+	}
+	if oidUcdMemAvailReal != "1.3.6.1.4.1.2021.4.6.0" {
+		t.Errorf("memAvailReal: %s", oidUcdMemAvailReal)
+	}
+}
+
+func TestSNMPCollector_DuplicateDescriptionsDisambiguated(t *testing.T) {
+	session := &fakeSNMPSession{
+		get: func([]string) ([]gosnmp.SnmpPDU, error) { return nil, nil },
+		walk: func(root string) ([]gosnmp.SnmpPDU, error) {
+			switch root {
+			case oidIfDescr:
+				// Descriptive text that would collide if used verbatim.
+				return []gosnmp.SnmpPDU{
+					pdu(oidIfDescr+".1", gosnmp.OctetString, []byte("port")),
+					pdu(oidIfDescr+".2", gosnmp.OctetString, []byte("port")),
+					pdu(oidIfDescr+".10", gosnmp.OctetString, []byte("port")),
+				}, nil
+			case oidIfInOctets:
+				return []gosnmp.SnmpPDU{
+					pdu(oidIfInOctets+".1", gosnmp.Counter32, uint32(11)),
+					pdu(oidIfInOctets+".2", gosnmp.Counter32, uint32(22)),
+					pdu(oidIfInOctets+".10", gosnmp.Counter32, uint32(33)),
+				}, nil
+			default:
+				return nil, nil
+			}
+		},
+	}
+
+	got := sampleMap(collectWith(t, session, nil))
+	// Duplicate descriptions get index-suffixed deterministically.
+	for metric, want := range map[string]float64{
+		"snmp.iface.port.in_octets":    11,
+		"snmp.iface.port_2.in_octets":  22,
+		"snmp.iface.port_10.in_octets": 33,
+	} {
+		if got[metric] != want {
+			t.Errorf("%s: want %v got %v", metric, want, got[metric])
+		}
+	}
+}
+
+func TestSNMPCollector_IfNamePreferredOverDescr(t *testing.T) {
+	session := &fakeSNMPSession{
+		get: func([]string) ([]gosnmp.SnmpPDU, error) { return nil, nil },
+		walk: func(root string) ([]gosnmp.SnmpPDU, error) {
+			switch root {
+			case oidIfName:
+				return []gosnmp.SnmpPDU{
+					pdu(oidIfName+".1", gosnmp.OctetString, []byte("Gi0/1")),
+				}, nil
+			case oidIfDescr:
+				return []gosnmp.SnmpPDU{
+					pdu(oidIfDescr+".1", gosnmp.OctetString, []byte("GigabitEthernet0/1")),
+				}, nil
+			case oidIfInOctets:
+				return []gosnmp.SnmpPDU{
+					pdu(oidIfInOctets+".1", gosnmp.Counter32, uint32(11)),
+				}, nil
+			default:
+				return nil, nil
+			}
+		},
+	}
+	got := sampleMap(collectWith(t, session, nil))
+	if _, ok := got["snmp.iface.gi0_1.in_octets"]; !ok {
+		t.Errorf("ifName should win over ifDescr: %v", got)
+	}
+	if _, ok := got["snmp.iface.gigabitethernet0/1.in_octets"]; ok {
+		t.Error("ifDescr leaked despite ifName being present")
 	}
 }

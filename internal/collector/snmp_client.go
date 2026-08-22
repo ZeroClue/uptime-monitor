@@ -8,20 +8,25 @@ import (
 )
 
 const (
-	snmpTimeout = 5 * time.Second
-	snmpRetries = 1
+	defaultSNMPTimeout = 5 * time.Second
+	snmpRetries        = 1
 )
 
-// dialSNMP opens an SNMP session for the host's connection settings.
+// dialSNMP opens an SNMP session for the host's connection settings. The
+// per-host Timeout (DB-owned operations data) bounds each exchange.
 func dialSNMP(host Host) (snmpSession, error) {
 	port := host.Port
 	if port == 0 {
 		port = 161
 	}
+	timeout := defaultSNMPTimeout
+	if host.Timeout > 0 {
+		timeout = host.Timeout
+	}
 	g := &gosnmp.GoSNMP{
 		Target:             host.Endpoint,
 		Port:               uint16(port),
-		Timeout:            snmpTimeout,
+		Timeout:            timeout,
 		Retries:            snmpRetries,
 		MaxOids:            gosnmp.MaxOids,
 		Transport:          "udp",

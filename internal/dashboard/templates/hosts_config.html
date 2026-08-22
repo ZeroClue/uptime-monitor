@@ -123,7 +123,7 @@
                     </div>
                     <div class="form-group">
                         <label for="hostSNMPCommunity">Community</label>
-                        <input type="text" name="snmp_community" id="hostSNMPCommunity" placeholder="public">
+                        <input type="password" name="snmp_community" id="hostSNMPCommunity" placeholder="public" autocomplete="off">
                     </div>
                 </div>
                 <div class="form-row">
@@ -423,7 +423,8 @@
     function toggleSNMPSection(connection) {
         document.getElementById('snmpSection').hidden = connection !== 'snmp';
         if (connection === 'snmp') {
-            document.getElementById('hostPort').value = 161;
+            const port = document.getElementById('hostPort');
+            if (!port.value || port.value === '22') port.value = 161;
             toggleSNMPAuth();
         }
     }
