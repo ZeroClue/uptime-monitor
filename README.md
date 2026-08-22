@@ -343,7 +343,7 @@ Failed polls retry with exponential backoff — `delay = min(base_delay * 2^atte
 
 ### Hosts: yaml vs UI edits
 
-hosts.yaml is the source of truth for host **connectivity** (endpoint, port, user, key, sudo, proxy jump, tags) and re-syncs on every startup. **Operational settings** — timeouts, retries, host-key policy, collector preference, project assignment — are seeded once for new hosts and afterwards owned by the database (UI/API edits survive restarts; changing them in yaml for an existing host has no effect).
+hosts.yaml is the source of truth for host **connectivity** (connection type, endpoint, port, user, key, sudo, proxy jump, tags) and re-syncs on every startup. **Operational settings** — timeouts, retries, host-key policy, collector preference, project assignment — are seeded once for new hosts and afterwards owned by the database (UI/API edits survive restarts; changing them in yaml for an existing host has no effect).
 
 ### SSH host keys
 
