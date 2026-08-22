@@ -6,6 +6,26 @@
     <meta name="theme-color" id="theme-color-meta" content="#11151c">
     <title>{{block "title" .}}Uptime Monitor{{end}}</title>
     <link rel="stylesheet" href="/static/app.css">
+    <script>
+        // Shared API helpers for config pages (single definition; pages call at DOMContentLoaded or later).
+        async function apiGet(path) {
+            const res = await fetch(path, { headers: { 'Accept': 'application/json' } });
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            return res.json();
+        }
+        async function apiSend(method, path, body) {
+            const res = await fetch(path, {
+                method,
+                headers: body !== undefined ? { 'Content-Type': 'application/json' } : {},
+                body: body !== undefined ? JSON.stringify(body) : undefined,
+            });
+            if (!res.ok) throw new Error(await res.text() || ('HTTP ' + res.status));
+            return res.status === 204 ? null : res.json();
+        }
+        async function apiPost(path, body) { return apiSend('POST', path, body); }
+        async function apiPut(path, body) { return apiSend('PUT', path, body); }
+        async function apiDelete(path) { return apiSend('DELETE', path); }
+    </script>
     <script src="/static/chart.min.js" defer></script>
     <script src="/static/app.js" defer></script>
 </head>
