@@ -109,7 +109,9 @@ hosts:
     collector_preference: ""  # optional: force specific collector
 ```
 
-### Threshold Configuration (`/config/thresholds.yaml`)
+### Alert Rules & Channels
+
+Rules and notification channels live in the database and are managed at **Alert Config** (`/alerts/config`). `thresholds.yaml` acts as a first-run seed only:
 
 ```yaml
 thresholds:
