@@ -94,6 +94,21 @@ func TestParseScriptOutput_SanitizesUnsafeChars(t *testing.T) {
 	}
 }
 
+func TestParseScriptOutput_SiblingNamespaceIsReprefixed(t *testing.T) {
+	now := time.Now()
+	metrics, err := parseScriptOutput("queue_depth", "json",
+		`[{"metric": "queue_depth2.x", "value": 1}, {"metric": "custom.queue_depth.real", "value": 2}]`, now)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if metrics[0].Metric != "custom.queue_depth.queue_depth2.x" {
+		t.Errorf("sibling namespace escaped prefix: %q", metrics[0].Metric)
+	}
+	if metrics[1].Metric != "custom.queue_depth.real" {
+		t.Errorf("exact namespace should not be double-prefixed: %q", metrics[1].Metric)
+	}
+}
+
 func TestParseScriptOutput_CSV(t *testing.T) {
 	now := time.Date(2026, 8, 22, 10, 0, 0, 0, time.UTC)
 	unix := now.Add(-time.Minute).Unix()

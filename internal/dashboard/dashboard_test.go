@@ -362,15 +362,17 @@ func TestAPIHosts_UnscopedReturnsAll(t *testing.T) {
 }
 
 type fakeScriptRunner struct {
-	got     collector.Host
-	samples []collector.Sample
-	err     error
+	got         collector.Host
+	hadDeadline bool
+	samples     []collector.Sample
+	err         error
 }
 
 func (f *fakeScriptRunner) Name() string { return "custom" }
 
-func (f *fakeScriptRunner) Collect(_ context.Context, h collector.Host) ([]collector.Sample, error) {
+func (f *fakeScriptRunner) Collect(ctx context.Context, h collector.Host) ([]collector.Sample, error) {
 	f.got = h
+	_, f.hadDeadline = ctx.Deadline()
 	return f.samples, f.err
 }
 
@@ -439,6 +441,33 @@ func TestAPIHostScriptTest_UsesStoredScriptWhenBodyEmpty(t *testing.T) {
 	}
 	if runner.got.ScriptName != "stored-script" || runner.got.ScriptCommand != `stats --host {{.Host}}` || runner.got.ScriptParse != "json" {
 		t.Errorf("stored script not used: %+v", runner.got)
+	}
+}
+
+func TestAPIHostScriptTest_CollectorTimeoutBoundsRequest(t *testing.T) {
+	s, db, id, runner := scriptTestServer(t)
+	ctx := context.Background()
+
+	collected, err := db.GetHost(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	timeoutMs := int64(5000)
+	collected.CollectorTimeoutMs = &timeoutMs
+	if err := db.UpdateHost(ctx, collected); err != nil {
+		t.Fatal(err)
+	}
+	runner.hadDeadline = false
+
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/hosts/%d/scripts/test", id), nil)
+	rec := httptest.NewRecorder()
+	s.handleAPIHostScriptTest(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !runner.hadDeadline {
+		t.Error("collector timeout did not bound the test run context")
 	}
 }
 

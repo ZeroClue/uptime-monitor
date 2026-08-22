@@ -243,11 +243,12 @@ func parsePlainScriptOutput(prefix, output string, now time.Time) ([]scriptMetri
 	return []scriptMetric{{Metric: prefix + "value", Value: v, Timestamp: now}}, nil
 }
 
-// joinPrefix namespaces a metric under prefix unless it already carries it,
-// sanitizing everything outside [a-z0-9_.-].
+// joinPrefix namespaces a metric under prefix unless it already carries the
+// full prefix (including its trailing dot, so sibling namespaces like
+// <name>2.x are still re-prefixed), sanitizing everything outside [a-z0-9_.-].
 func joinPrefix(prefix, metric string) string {
 	metric = sanitizeMetricPart(metric)
-	if strings.HasPrefix(metric, strings.TrimSuffix(prefix, ".")) {
+	if strings.HasPrefix(metric, prefix) {
 		return metric
 	}
 	return prefix + metric

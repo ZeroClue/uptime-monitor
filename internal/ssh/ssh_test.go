@@ -2,6 +2,8 @@ package ssh
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -51,5 +53,27 @@ func TestLimitedWriter_ZeroLimitFailsImmediately(t *testing.T) {
 	}
 	if buf.Len() != 0 {
 		t.Errorf("buffer should stay empty, got %q", buf.String())
+	}
+}
+
+func TestKnownHostsHasEntry(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "known_hosts")
+
+	c := NewSSHClient(nil, nil).(*sshClient)
+
+	if c.knownHostsHasEntry(file, "example.com", 22) {
+		t.Fatal("empty file should have no entry")
+	}
+
+	entry := "example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIB1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ\n"
+	if err := os.WriteFile(file, []byte(entry), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !c.knownHostsHasEntry(file, "example.com", 22) {
+		t.Fatal("expected entry for example.com:22")
+	}
+	if c.knownHostsHasEntry(file, "other.com", 22) {
+		t.Fatal("unexpected entry for other.com")
 	}
 }

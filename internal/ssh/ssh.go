@@ -74,16 +74,12 @@ func NewSSHClient(logger *slog.Logger, defaults *SSHTargetDefaults) SSHClient {
 // Exec executes a command on the target host via SSH.
 // Returns stdout+stderr combined output, or an error if the command fails.
 func (c *sshClient) Exec(ctx context.Context, target *SSHTarget, cmd string) (string, error) {
-	return c.execLimited(ctx, target, cmd, 0)
+	return c.ExecLimited(ctx, target, cmd, 0)
 }
 
 // ExecLimited executes a command like Exec but fails once the combined
 // output exceeds maxBytes. A non-positive maxBytes means unlimited.
 func (c *sshClient) ExecLimited(ctx context.Context, target *SSHTarget, cmd string, maxBytes int64) (string, error) {
-	return c.execLimited(ctx, target, cmd, maxBytes)
-}
-
-func (c *sshClient) execLimited(ctx context.Context, target *SSHTarget, cmd string, maxBytes int64) (string, error) {
 	// Apply defaults for any zero values
 	if target.Port == 0 {
 		target.Port = c.defaults.DefaultPort

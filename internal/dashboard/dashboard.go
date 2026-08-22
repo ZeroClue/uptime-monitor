@@ -731,25 +731,7 @@ func (s *Server) handleAPIHostScriptTest(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	target := collector.Host{
-		ID:                  stored.ID,
-		Name:                stored.Name,
-		Connection:          stored.Connection,
-		Endpoint:            stored.Endpoint,
-		Port:                stored.Port,
-		User:                stored.User,
-		KeyPath:             stored.KeyPath,
-		Sudo:                stored.Sudo,
-		Timeout:             stored.Timeout,
-		SSHTimeout:          msDuration(stored.SshTimeoutMs),
-		CollectorTimeout:    msDuration(stored.CollectorTimeoutMs),
-		SSHHostKeyPolicy:    derefPolicy(stored.SSHHostKeyPolicy),
-		ProxyJump:           stored.ProxyJump,
-		CollectorPreference: stored.CollectorPreference,
-		ScriptName:          stored.ScriptName,
-		ScriptCommand:       stored.ScriptCommand,
-		ScriptParse:         stored.ScriptParse,
-	}
+	target := scheduler.CollectorHostFor(*stored)
 	if overrides.ScriptName != nil {
 		target.ScriptName = *overrides.ScriptName
 	}
@@ -760,6 +742,13 @@ func (s *Server) handleAPIHostScriptTest(w http.ResponseWriter, r *http.Request)
 		target.ScriptParse = *overrides.ScriptParse
 	}
 
+	ctx := r.Context()
+	if stored.CollectorTimeoutMs != nil && *stored.CollectorTimeoutMs > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(*stored.CollectorTimeoutMs)*time.Millisecond)
+		defer cancel()
+	}
+
 	runner := s.scriptRunner
 	if runner == nil {
 		runner = collector.NewCustomCollector(
@@ -767,7 +756,7 @@ func (s *Server) handleAPIHostScriptTest(w http.ResponseWriter, r *http.Request)
 			collector.WithCustomLogger(s.logger),
 		)
 	}
-	samples, err := runner.Collect(r.Context(), target)
+	samples, err := runner.Collect(ctx, target)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("script test failed: %v", err), http.StatusBadGateway)
 		return
@@ -775,20 +764,6 @@ func (s *Server) handleAPIHostScriptTest(w http.ResponseWriter, r *http.Request)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"count": len(samples), "samples": samples})
-}
-
-func msDuration(ms *int64) time.Duration {
-	if ms == nil || *ms <= 0 {
-		return 0
-	}
-	return time.Duration(*ms) * time.Millisecond
-}
-
-func derefPolicy(p *string) string {
-	if p == nil {
-		return ""
-	}
-	return *p
 }
 
 type HostStatusSummary struct {
