@@ -65,6 +65,14 @@ type Host struct {
 	ScriptName          string        `json:"script_name"`         // custom collector: namespace custom.<script_name>.*
 	ScriptCommand       string        `json:"script_command"`      // custom collector: command template over {{.Host}}/{{.Port}}
 	ScriptParse         string        `json:"script_parse"`        // custom collector: json (default) | csv | plain
+	SNMPVersion         string        `json:"snmp_version"`        // snmp connection: "2c" | "3"
+	SNMPCommunity       string        `json:"snmp_community"`      // snmp v2c community
+	SNMPv3User          string        `json:"snmp_v3_user"`
+	SNMPv3AuthProto     string        `json:"snmp_v3_auth_proto"` // MD5 | SHA | SHA224 | SHA256 | SHA384 | SHA512
+	SNMPv3AuthPass      string        `json:"snmp_v3_auth_pass"`
+	SNMPv3PrivProto     string        `json:"snmp_v3_priv_proto"` // DES | AES | AES192 | AES256
+	SNMPv3PrivPass      string        `json:"snmp_v3_priv_pass"`
+	SNMPExtraOIDs       string        `json:"snmp_extra_oids"` // lines of "<oid> <metric_name>"
 }
 
 type Alert struct {

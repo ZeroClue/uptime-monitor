@@ -98,6 +98,20 @@ func eqHost(t *testing.T, phase string, want, got Host) {
 	if got.ScriptParse != want.ScriptParse {
 		t.Errorf("%s: script_parse: want %q got %q", phase, want.ScriptParse, got.ScriptParse)
 	}
+	cmpSNMP := func(col string, w, g string) {
+		t.Helper()
+		if w != g {
+			t.Errorf("%s: %s: want %q got %q", phase, col, w, g)
+		}
+	}
+	cmpSNMP("snmp_version", want.SNMPVersion, got.SNMPVersion)
+	cmpSNMP("snmp_community", want.SNMPCommunity, got.SNMPCommunity)
+	cmpSNMP("snmp_v3_user", want.SNMPv3User, got.SNMPv3User)
+	cmpSNMP("snmp_v3_auth_proto", want.SNMPv3AuthProto, got.SNMPv3AuthProto)
+	cmpSNMP("snmp_v3_auth_pass", want.SNMPv3AuthPass, got.SNMPv3AuthPass)
+	cmpSNMP("snmp_v3_priv_proto", want.SNMPv3PrivProto, got.SNMPv3PrivProto)
+	cmpSNMP("snmp_v3_priv_pass", want.SNMPv3PrivPass, got.SNMPv3PrivPass)
+	cmpSNMP("snmp_extra_oids", want.SNMPExtraOIDs, got.SNMPExtraOIDs)
 }
 
 // fullHost returns a Host with every column set to a distinct value so any
@@ -125,6 +139,14 @@ func fullHost(projectID int64) *Host {
 		ScriptName:          "rt-script",
 		ScriptCommand:       `/opt/rt/bin/stats --host {{.Host}} --port {{.Port}}`,
 		ScriptParse:         "json",
+		SNMPVersion:         "3",
+		SNMPCommunity:       "rt-community",
+		SNMPv3User:          "rt-user",
+		SNMPv3AuthProto:     "SHA",
+		SNMPv3AuthPass:      "rt-auth-pass",
+		SNMPv3PrivProto:     "AES",
+		SNMPv3PrivPass:      "rt-priv-pass",
+		SNMPExtraOIDs:       "1.3.6.1.4.1.8072.999 temp_c",
 	}
 }
 
@@ -170,6 +192,14 @@ func TestHostFullFieldRoundtrip_CreateUpdateGet(t *testing.T) {
 	want.ScriptName = "rt-script-2"
 	want.ScriptCommand = `cat /var/lib/metrics.csv`
 	want.ScriptParse = "csv"
+	want.SNMPVersion = "2c"
+	want.SNMPCommunity = "rt-community-2"
+	want.SNMPv3User = ""
+	want.SNMPv3AuthProto = ""
+	want.SNMPv3AuthPass = ""
+	want.SNMPv3PrivProto = ""
+	want.SNMPv3PrivPass = ""
+	want.SNMPExtraOIDs = ""
 
 	if err := db.UpdateHost(ctx, want); err != nil {
 		t.Fatalf("update: %v", err)

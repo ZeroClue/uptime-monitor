@@ -64,8 +64,9 @@ open http://localhost:8080
 
 **Key Design Decisions:**
 - **Pull model** — Monitor initiates connections; no agent required on targets
-- **Collector fallback chain** — psutil → `/proc`+`df` → Tailscale → Custom scripts (works on any Linux host)
+- **Collector fallback chain** — psutil → `/proc`+`df` → SNMP → Tailscale → Custom scripts
 - **Custom script collector** — run user-defined commands over SSH; stdout parsed as a JSON array of `{metric, value, timestamp}`, CSV lines `metric,value[,unix_ts]`, or a plain number, namespaced as `custom.<script_name>.*` (1 MiB output cap, 1000-sample cap); configured per host in the dashboard with an editor and Test Run button
+- **SNMP collector** — polls switches/routers/firewalls over SNMP v2c/v3 (gosnmp); maps IF-MIB interface counters, HOST-RESOURCES-MIB CPU/memory/disk and UCD-SNMP-MIB load onto `snmp.iface.*`, `snmp.cpu.*`, `snmp.mem.*`, `snmp.disk.*`, `snmp.load.*`; extra OIDs export as `snmp.custom.*`
 - **Prometheus remote write** — optional background exporter streams all samples to Prometheus/Mimir/Thanos/Grafana Cloud (snappy-compressed protobuf, basic/bearer auth, bounded drop-oldest queue, exponential backoff retry); configure under Alert Configuration → Remote Write; scrape `/metrics` for exporter health
 - **Single binary** — ~10MB static Go binary, runs in distroless/scratch container
 - **Embedded SQLite** — Zero external dependencies, WAL mode for concurrency

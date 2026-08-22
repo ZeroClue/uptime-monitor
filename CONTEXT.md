@@ -14,7 +14,7 @@
 
 **Collector** — A strategy for fetching metrics from a host. Multiple collectors tried in order until one succeeds. The **custom** collector runs a user-defined command over SSH and parses stdout (JSON array of `{metric, value, timestamp?}`, CSV `metric,value[,unix_ts]`, or plain number) into the `custom.<script_name>.*` namespace; selected via `collector_preference: custom`.
 
-**Connection** — How the Monitor reaches a Host: SSH (with key), Tailscale IP, Local (procfs of the machine running the Monitor; `HOST_PROC` override for container deployments), or VPN endpoint.
+**Connection** — How the Monitor reaches a Host: SSH (with key), Tailscale IP, Local (procfs of the machine running the Monitor; `HOST_PROC` override for container deployments), SNMP v2c/v3 (network devices; credentials are yaml-owned like user/key), or VPN endpoint.
 
 **Dashboard** — Web UI served by the Monitor showing host list, per-host drill-down, and metric graphs.
 
@@ -61,7 +61,8 @@ hosts:
 | Raw retention | 7 days | Debugging window |
 | 1-min aggregate retention | 90 days | Operational dashboards |
 | 1-hour aggregate retention | Forever | Capacity planning |
-| Collector fallback order | 1) Local procfs (connection=local only) 2) SSH+psutil 3) SSH+/proc+df 4) Tailscale+same 5) Custom script (preference=custom only) 6) SNMP/node_exporter (later) | Progressive enhancement; works on any Linux host |
+| Collector fallback order | 1) Local procfs (connection=local only) 2) SSH+psutil 3) SSH+/proc+df 4) SNMP v2c/v3 (connection=snmp only; gosnmp; IF-MIB + HOST-RESOURCES-MIB + UCD-SNMP-MIB → snmp.* namespaces) 5) Tailscale+same 6) Custom script (preference=custom only) 7) node_exporter (later) | Progressive enhancement; works on any Linux host or network device |
+| SNMP credentials are connectivity data | snmp_version/community/v3 params live on hosts and are yaml-owned (re-synced like user/key_path per ADR-0007); extra OIDs poll as snmp.custom.<metric> gauges | Devices' SNMP creds deploy with the device config, not operator tuning |
 | Failed polls retry with exponential backoff; auth/host-key errors never retry | Transient faults shouldn't flap hosts down; permanent failures shouldn't burn attempts | Retrying auth would lock accounts; backoff bounds thundering-herd on recovery |
 | Alert rules/channels with a project apply only within it; project-less ones are global | Isolation without forcing everyone to assign projects | Global rules remain useful for single-project installs |
 | hosts.yaml owns host **connectivity** (connection type, endpoint, port, user, key, sudo, proxy, tags); the DB owns host **operations** (timeouts, retries, key policy, collector preference, scripts) after first seed | yaml is the deployment source of truth; operators tune behavior via UI/API without losing edits on restart | Changing connectivity in code but not yaml would drift from declared infrastructure |
