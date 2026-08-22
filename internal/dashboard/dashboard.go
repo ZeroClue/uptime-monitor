@@ -608,12 +608,14 @@ func (s *Server) handleAPIHosts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAPIHostsGet(w http.ResponseWriter, r *http.Request) {
-	projectID := r.URL.Query().Get("project_id")
-	var projectIDPtr *int64
-	if projectID != "" {
-		if id, err := strconv.ParseInt(projectID, 10, 64); err == nil {
-			projectIDPtr = &id
+	projectIDPtr := projectIDFromContext(r.Context())
+	if raw := r.URL.Query().Get("project_id"); raw != "" {
+		id, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || id <= 0 {
+			http.Error(w, "Invalid project_id", http.StatusBadRequest)
+			return
 		}
+		projectIDPtr = &id
 	}
 	hosts, err := s.db.GetHostsByProject(r.Context(), projectIDPtr)
 	if err != nil {

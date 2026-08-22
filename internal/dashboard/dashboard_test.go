@@ -342,3 +342,19 @@ func TestDeleteDefaultProject_Blocked(t *testing.T) {
 		t.Fatalf("expected 400 deleting default project, got %d", rec.Code)
 	}
 }
+
+func TestAPIHosts_UnscopedReturnsAll(t *testing.T) {
+	s := newTestServer(t)
+	rec := httptest.NewRecorder()
+	s.handleAPIHosts(rec, httptest.NewRequest(http.MethodGet, "/api/hosts", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	var hosts []storage.Host
+	if err := json.Unmarshal(rec.Body.Bytes(), &hosts); err != nil {
+		t.Fatal(err)
+	}
+	if len(hosts) != 2 {
+		t.Fatalf("typed-nil scope filter leaked: expected all 2 hosts, got %d", len(hosts))
+	}
+}

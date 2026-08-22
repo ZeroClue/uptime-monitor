@@ -74,12 +74,15 @@ func durationMsOrNull(d *time.Duration) interface{} {
 	return d.Milliseconds()
 }
 
-func (db *DB) GetHostsByProject(ctx context.Context, projectID interface{}) ([]Host, error) {
+// GetHostsByProject returns hosts in the given project; nil means all
+// hosts. The *int64 type (not interface{}) prevents a typed-nil from being
+// mistaken for an active filter.
+func (db *DB) GetHostsByProject(ctx context.Context, projectID *int64) ([]Host, error) {
 	query := `SELECT ` + hostColumns + ` FROM hosts`
 	var args []interface{}
 	if projectID != nil {
 		query += ` WHERE project_id = ?`
-		args = append(args, projectID)
+		args = append(args, *projectID)
 	}
 
 	rows, err := db.QueryContext(ctx, query, args...)
